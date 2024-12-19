@@ -114,7 +114,7 @@ func (c *clientHello) marshal(aad bool) ([]byte, error) {
 	return b.Bytes()
 }
 
-func parseClientHello(buf []byte, keys []Key) (*clientHello, error) {
+func parseClientHello(buf []byte) (*clientHello, error) {
 	var hello clientHello
 
 	// https://datatracker.ietf.org/doc/html/rfc8446#section-4
@@ -353,6 +353,13 @@ func parseClientHello(buf []byte, keys []Key) (*clientHello, error) {
 					return nil, ErrInvalidFormat
 				}
 				hello.echExt.Payload = slices.Clone(v)
+			}
+		}
+	}
+	if hello.echExt != nil && hello.echExt.Type == 1 {
+		for _, p := range s {
+			if p != 0 {
+				return nil, ErrIllegalParameter
 			}
 		}
 	}

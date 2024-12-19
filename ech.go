@@ -116,7 +116,7 @@ func (c *Conn) ALPNProtos() []string {
 }
 
 func (c *Conn) handleClientHello(record []byte) (outer, inner *clientHello, err error) {
-	if outer, err = parseClientHello(record[5:], c.keys); err != nil {
+	if outer, err = parseClientHello(record[5:]); err != nil {
 		return nil, nil, err
 	}
 	if inner, err = c.processEncryptedClientHello(outer); err != nil && err != ErrNoMatch {
@@ -170,7 +170,7 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 	if err != nil {
 		return nil, err
 	}
-	inner, err := parseClientHello(msg, nil)
+	inner, err := parseClientHello(msg)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +227,7 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 	if err != nil {
 		return nil, err
 	}
-	return parseClientHello(m[5:], nil)
+	return parseClientHello(m[5:])
 }
 
 func (c *Conn) Read(b []byte) (int, error) {
