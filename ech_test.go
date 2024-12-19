@@ -65,7 +65,7 @@ func TestConn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ln.Accept: %v", err)
 	}
-	outConn, err := New(serverConn, []Key{{
+	outConn, err := New(t.Context(), serverConn, []Key{{
 		Config:      config,
 		PrivateKey:  privKey.Bytes(),
 		SendAsRetry: true,
@@ -137,7 +137,7 @@ func TestConnRetry(t *testing.T) {
 			t.Fatalf("ln.Accept: %v", err)
 		}
 		go func() {
-			outConn, err := New(serverConn, []Key{{
+			outConn, err := New(t.Context(), serverConn, []Key{{
 				Config:      config,
 				PrivateKey:  privKey.Bytes(),
 				SendAsRetry: true,
@@ -212,7 +212,7 @@ func TestConnRetry(t *testing.T) {
 			ch <- string(b[:n])
 		}()
 
-		outConn, err := New(serverConn, []Key{{
+		outConn, err := New(t.Context(), serverConn, []Key{{
 			Config:      config,
 			PrivateKey:  privKey.Bytes(),
 			SendAsRetry: true,

@@ -3,6 +3,7 @@
 package ech
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -28,10 +29,12 @@ var _ net.Conn = (*Conn)(nil)
 // processed. Conn continues to inspect the other handshake messages for
 // retries. If ClientHello is retried, it will be processed similarly to the
 // first one, with some extra restrictions.
-func New(conn net.Conn, keys []Key) (outConn *Conn, err error) {
+//
+// The ctx is used while reading the initial ClientHello only. It is not used
+// after New returns.
+func New(ctx context.Context, conn net.Conn, keys []Key) (outConn *Conn, err error) {
 	defer convertErrorsToAlerts(conn, err)
-
-	record, err := readRecord(conn)
+	record, err := readRecord(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
@@ -43,22 +46,19 @@ func New(conn net.Conn, keys []Key) (outConn *Conn, err error) {
 		keys:       keys,
 		retryCount: new(atomic.Int32),
 	}
-	outer, inner, err := outConn.handleClientHello(record)
-	if err != nil {
-		return nil, err
+	if outConn.outer, outConn.inner, err = outConn.handleClientHello(record); err != nil {
+		return outConn, err
 	}
-	outConn.outer = outer
-	outConn.inner = inner
-	outConn.readPassthrough = inner == nil
-	outConn.writePassthrough = inner == nil
+	outConn.readPassthrough = outConn.inner == nil
+	outConn.writePassthrough = outConn.inner == nil
 
-	if inner != nil {
-		outConn.readBuf, err = inner.Marshal()
+	if outConn.inner != nil {
+		outConn.readBuf, err = outConn.inner.Marshal()
 	} else {
-		outConn.readBuf, err = outer.Marshal()
+		outConn.readBuf, err = outConn.outer.Marshal()
 	}
 	if err != nil {
-		return nil, err
+		return outConn, err
 	}
 	return outConn, nil
 }
@@ -84,21 +84,21 @@ type Conn struct {
 // ECHPresented indicates whether the client presented an Encrypted Client
 // Hello.
 func (c *Conn) ECHPresented() bool {
-	return c.outer != nil && c.outer.echExt != nil
+	return c != nil && c.outer != nil && c.outer.echExt != nil
 }
 
 // ECHAccepted indicates whether the client's Encrypted Client Hello was
 // successfully decrypted and validated.
 func (c *Conn) ECHAccepted() bool {
-	return c.inner != nil
+	return c != nil && c.inner != nil
 }
 
 // ServerName returns the SNI value extracted from the ClientHello.
 func (c *Conn) ServerName() string {
-	if c.inner != nil {
+	if c != nil && c.inner != nil {
 		return c.inner.ServerName
 	}
-	if c.outer != nil {
+	if c != nil && c.outer != nil {
 		return c.outer.ServerName
 	}
 	return ""
@@ -106,10 +106,10 @@ func (c *Conn) ServerName() string {
 
 // ALPNProtos returns the ALPN protocol values extracted from the ClientHello.
 func (c *Conn) ALPNProtos() []string {
-	if c.inner != nil {
+	if c != nil && c.inner != nil {
 		return slices.Clone(c.inner.ALPNProtos)
 	}
-	if c.outer != nil {
+	if c != nil && c.outer != nil {
 		return slices.Clone(c.outer.ALPNProtos)
 	}
 	return nil
@@ -232,7 +232,7 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 
 func (c *Conn) Read(b []byte) (int, error) {
 	if !c.readPassthrough && len(c.readBuf) == 0 && c.readErr == nil {
-		r, err := readRecord(c.Conn)
+		r, err := readRecord(context.Background(), c.Conn)
 		if len(r) >= 5 {
 			if r[0] == 22 {
 				fmt.Fprintf(os.Stderr, "Read %s(%d) %s\n", contentType(r[0]), r[0], handshakeMessageTypes[r[5]])
