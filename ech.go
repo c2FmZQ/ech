@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"slices"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/crypto/cryptobyte"
 
@@ -17,6 +17,23 @@ import (
 )
 
 var _ net.Conn = (*Conn)(nil)
+
+// Option is a argument passed to New.
+type Option func(*Conn)
+
+// WithKeys enables the decryption of Encrypted Client Hello messages.
+func WithKeys(keys []Key) Option {
+	return func(c *Conn) {
+		c.keys = append(c.keys, keys...)
+	}
+}
+
+// WithDebug enables debugging.
+func WithDebug(f func(format string, arg ...any)) Option {
+	return func(c *Conn) {
+		c.debugf = f
+	}
+}
 
 // New returns a [Conn] that manages Encrypted Client Hello in TLS connections,
 // as defined in https://datatracker.ietf.org/doc/draft-ietf-tls-esni/ .
@@ -32,9 +49,18 @@ var _ net.Conn = (*Conn)(nil)
 //
 // The ctx is used while reading the initial ClientHello only. It is not used
 // after New returns.
-func New(ctx context.Context, conn net.Conn, keys []Key) (outConn *Conn, err error) {
+func New(ctx context.Context, conn net.Conn, options ...Option) (outConn *Conn, err error) {
 	defer convertErrorsToAlerts(conn, err)
-	record, err := readRecord(ctx, conn)
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			conn.SetDeadline(time.Now())
+		}
+	}()
+	record, err := readRecord(conn)
 	if err != nil {
 		return nil, err
 	}
@@ -43,8 +69,13 @@ func New(ctx context.Context, conn net.Conn, keys []Key) (outConn *Conn, err err
 	}
 	outConn = &Conn{
 		Conn:       conn,
-		keys:       keys,
 		retryCount: new(atomic.Int32),
+	}
+	for _, opt := range options {
+		opt(outConn)
+	}
+	if outConn.debugf == nil {
+		outConn.debugf = func(string, ...any) {}
 	}
 	if outConn.outer, outConn.inner, err = outConn.handleClientHello(record); err != nil {
 		return outConn, err
@@ -73,6 +104,7 @@ type Conn struct {
 	hpkeCtx *hpke.Receipient
 
 	keys             []Key
+	debugf           func(string, ...any)
 	readBuf          []byte
 	readErr          error
 	writeBuf         []byte
@@ -232,22 +264,22 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 
 func (c *Conn) Read(b []byte) (int, error) {
 	if !c.readPassthrough && len(c.readBuf) == 0 && c.readErr == nil {
-		r, err := readRecord(context.Background(), c.Conn)
+		r, err := readRecord(c.Conn)
 		if len(r) >= 5 {
 			if r[0] == 22 {
-				fmt.Fprintf(os.Stderr, "Read %s(%d) %s\n", contentType(r[0]), r[0], handshakeMessageTypes[r[5]])
+				c.debugf("Read %s(%d) %s\n", contentType(r[0]), r[0], handshakeMessageTypes[r[5]])
 			} else {
-				fmt.Fprintf(os.Stderr, "Read %s(%d)\n", contentType(r[0]), r[0])
+				c.debugf("Read %s(%d)\n", contentType(r[0]), r[0])
 			}
 		}
 		switch {
 		case err != nil:
-			fmt.Fprintf(os.Stderr, "Read error %v\n", err)
+			c.debugf("Read error %v\n", err)
 			c.readErr = err
 		case r[0] == 23:
 			c.readPassthrough = true
 		case r[0] == 22 && r[5] == 1 && c.retryCount.Load() == 1:
-			fmt.Fprintf(os.Stderr, "Handshake Retried ClientHello\n")
+			c.debugf("Handshake Retried ClientHello\n")
 			_, inner, err := c.handleClientHello(r)
 			if err != nil {
 				c.readErr = err
@@ -310,9 +342,9 @@ func (c *Conn) inspectWrite(record []byte) error {
 	recType := c.writeBuf[0]
 	msgType := c.writeBuf[5]
 	if recType == 22 {
-		fmt.Fprintf(os.Stderr, "Write %s(%d) %s\n", contentType(recType), recType, handshakeMessageTypes[msgType])
+		c.debugf("Write %s(%d) %s\n", contentType(recType), recType, handshakeMessageTypes[msgType])
 	} else {
-		fmt.Fprintf(os.Stderr, "Write %s(%d)\n", contentType(recType), recType)
+		c.debugf("Write %s(%d)\n", contentType(recType), recType)
 	}
 	switch {
 	case recType == 23:
@@ -323,7 +355,7 @@ func (c *Conn) inspectWrite(record []byte) error {
 			return fmt.Errorf("%w: parseServerHello: %v\n", ErrDecodeError, err)
 		}
 		if h.IsHelloRetryRequest() {
-			fmt.Fprintf(os.Stderr, "HelloRetryRequest: %s\n", h)
+			c.debugf("HelloRetryRequest: %s\n", h)
 			c.retryCount.Add(1)
 		}
 	}

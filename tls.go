@@ -1,12 +1,10 @@
 package ech
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"time"
 )
 
 var (
@@ -85,16 +83,7 @@ func contentType(t uint8) string {
 	return "unknown"
 }
 
-func readRecord(ctx context.Context, conn net.Conn) ([]byte, error) {
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-done:
-		case <-ctx.Done():
-			conn.SetReadDeadline(time.Now())
-		}
-	}()
+func readRecord(conn net.Conn) ([]byte, error) {
 	record := make([]byte, 16389)
 	n, err := io.ReadFull(conn, record[:5])
 	if err == io.ErrUnexpectedEOF {

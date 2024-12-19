@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -58,7 +59,9 @@ func main() {
 			log.Fatalf("ln.Accept: %v", err)
 		}
 		go func() {
-			conn, err := ech.New(serverConn, echKeys)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			conn, err := ech.New(ctx, serverConn, ech.WithKeys(echKeys))
 			if err != nil {
 				log.Printf("New: %v", err)
 				return
