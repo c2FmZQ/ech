@@ -17,8 +17,7 @@ type clientHello struct {
 	LegacySessionID          []byte
 	CipherSuite              []byte
 	LegacyCompressionMethods []byte
-
-	Extensions []helloExtension
+	Extensions               []helloExtension
 
 	hasECHOuterExtensions bool
 	tls13                 bool

@@ -10,16 +10,12 @@ import (
 )
 
 type serverHello struct {
-	MsgType uint8
-	Length  uint32
-
 	LegacyVersion           uint16
 	Random                  []uint8
 	LegacySessionID         []byte
 	CipherSuite             uint16
 	LegacyCompressionMethod uint8
-
-	Extensions []helloExtension
+	Extensions              []helloExtension
 }
 
 func (h serverHello) String() string {
@@ -54,17 +50,16 @@ func parseServerHello(buf []byte) (*serverHello, error) {
 	//      };
 	// } Handshake;
 	s := cryptobyte.String(buf)
-	if !s.ReadUint8(&hello.MsgType) { // msg_type(1)
+	var msgType uint8
+	if !s.ReadUint8(&msgType) { // msg_type(1)
 		return nil, ErrInvalidFormat
 	}
-	if hello.MsgType != 0x02 { // ServerHello
-		return nil, fmt.Errorf("%w: msg_type 0x%x != 0x02", ErrUnexpectedMessage, hello.MsgType)
+	if msgType != 0x02 { // ServerHello
+		return nil, fmt.Errorf("%w: msg_type 0x%x != 0x02", ErrUnexpectedMessage, msgType)
 	}
-	var hlength []byte
-	if !s.ReadBytes(&hlength, 3) { // length(3)
+	if !s.Skip(3) { // length(3)
 		return nil, ErrInvalidFormat
 	}
-	hello.Length = uint32(hlength[0])<<16 | uint32(hlength[1])<<8 | uint32(hlength[2])
 
 	// struct {
 	//   ProtocolVersion legacy_version = 0x0303;    /* TLS v1.2 */
