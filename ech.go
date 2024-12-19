@@ -126,7 +126,7 @@ func (c *Conn) handleClientHello(record []byte) (outer, inner *clientHello, err 
 }
 
 func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error) {
-	if h.echExt == nil || !h.tls13 || h.echExt.Type != 0 || len(c.keys) == 0 {
+	if !h.tls13 || h.echExt == nil || h.echExt.Type != 0 || len(c.keys) == 0 {
 		return nil, nil
 	}
 	if h.hasECHOuterExtensions {
