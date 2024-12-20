@@ -17,7 +17,7 @@ type clientHello struct {
 	LegacySessionID          []byte
 	CipherSuite              []byte
 	LegacyCompressionMethods []byte
-	Extensions               []helloExtension
+	Extensions               []extension
 
 	hasECHOuterExtensions bool
 	tls13                 bool
@@ -47,8 +47,8 @@ func (c clientHello) String() string {
 	if c.echExt != nil {
 		fmt.Fprintf(&b, "ECH Type: 0x%02x\n", c.echExt.Type)
 		if c.echExt.Type == 0 {
-			fmt.Fprintf(&b, "ECH ECHKDF: 0x%04x\n", c.echExt.KDF)
-			fmt.Fprintf(&b, "ECH ECHAEAD: 0x%04x\n", c.echExt.AEAD)
+			fmt.Fprintf(&b, "ECH KDF: 0x%04x\n", c.echExt.KDF)
+			fmt.Fprintf(&b, "ECH AEAD: 0x%04x\n", c.echExt.AEAD)
 			fmt.Fprintf(&b, "ECH ConfigID: 0x%02x\n", c.echExt.ConfigID)
 			fmt.Fprintf(&b, "ECH Enc: 0x%x\n", c.echExt.Enc)
 			fmt.Fprintf(&b, "ECH Payload: 0x%x\n", c.echExt.Payload)
@@ -58,7 +58,7 @@ func (c clientHello) String() string {
 	return b.String()
 }
 
-type helloExtension struct {
+type extension struct {
 	Type uint16
 	Data []byte
 }
@@ -208,7 +208,7 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 		if !extensions.ReadUint16(&extType) || !extensions.ReadUint16LengthPrefixed(&data) {
 			return nil, ErrInvalidFormat
 		}
-		hello.Extensions = append(hello.Extensions, helloExtension{
+		hello.Extensions = append(hello.Extensions, extension{
 			Type: extType,
 			Data: slices.Clone(data),
 		})

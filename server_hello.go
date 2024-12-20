@@ -15,7 +15,7 @@ type serverHello struct {
 	LegacySessionID         []byte
 	CipherSuite             uint16
 	LegacyCompressionMethod uint8
-	Extensions              []helloExtension
+	Extensions              []extension
 }
 
 func (h serverHello) String() string {
@@ -34,6 +34,33 @@ func (h serverHello) String() string {
 
 func (h serverHello) IsHelloRetryRequest() bool {
 	return bytes.Equal(h.Random, helloRetryRequest)
+}
+
+func (h *serverHello) Marshal() ([]byte, error) {
+	b := cryptobyte.NewBuilder(nil)
+	b.AddUint8(0x16)
+	b.AddUint16(h.LegacyVersion)
+	b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
+		b.AddUint8(0x02)
+		b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
+			b.AddUint16(h.LegacyVersion)
+			b.AddBytes(h.Random)
+			b.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
+				b.AddBytes(h.LegacySessionID)
+			})
+			b.AddUint16(h.CipherSuite)
+			b.AddUint8(h.LegacyCompressionMethod)
+			b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
+				for _, ext := range h.Extensions {
+					b.AddUint16(ext.Type)
+					b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
+						b.AddBytes(ext.Data)
+					})
+				}
+			})
+		})
+	})
+	return b.Bytes()
 }
 
 func parseServerHello(buf []byte) (*serverHello, error) {
@@ -100,7 +127,7 @@ func parseServerHello(buf []byte) (*serverHello, error) {
 		if !extensions.ReadUint16(&extType) || !extensions.ReadUint16LengthPrefixed(&data) {
 			return nil, ErrInvalidFormat
 		}
-		hello.Extensions = append(hello.Extensions, helloExtension{
+		hello.Extensions = append(hello.Extensions, extension{
 			Type: extType,
 			Data: slices.Clone(data),
 		})

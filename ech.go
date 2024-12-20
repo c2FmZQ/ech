@@ -151,6 +151,9 @@ func (c *Conn) handleClientHello(record []byte) (outer, inner *clientHello, err 
 	if outer, err = parseClientHello(record[5:]); err != nil {
 		return nil, nil, err
 	}
+	if outer.hasECHOuterExtensions {
+		return nil, nil, fmt.Errorf("%w: ClientHelloOuter has ech_outer_extensions", ErrIllegalParameter)
+	}
 	if inner, err = c.processEncryptedClientHello(outer); err != nil && err != ErrNoMatch {
 		return nil, nil, err
 	}
@@ -160,9 +163,6 @@ func (c *Conn) handleClientHello(record []byte) (outer, inner *clientHello, err 
 func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error) {
 	if !h.tls13 || h.echExt == nil || h.echExt.Type != 0 || len(c.keys) == 0 {
 		return nil, nil
-	}
-	if h.hasECHOuterExtensions {
-		return nil, fmt.Errorf("%w: ClientHelloOuter has ech_outer_extensions", ErrIllegalParameter)
 	}
 	var innerBytes []byte
 	for _, key := range c.keys {
@@ -212,7 +212,7 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 	inner.LegacySessionID = h.LegacySessionID
 
 	var eoeSeen bool
-	var newExt []helloExtension
+	var newExt []extension
 	for _, ext := range inner.Extensions {
 		if ext.Type != 0xfd00 {
 			newExt = append(newExt, ext)
@@ -287,7 +287,7 @@ func (c *Conn) Read(b []byte) (int, error) {
 				return 0, err
 			}
 			if inner == nil || c.inner.ServerName != inner.ServerName || !slices.Equal(c.inner.ALPNProtos, inner.ALPNProtos) {
-				c.readErr = ErrIllegalParameter
+				c.readErr = fmt.Errorf("%w: second client_hello mismatch", ErrIllegalParameter)
 				convertErrorsToAlerts(c, c.readErr)
 				return 0, c.readErr
 			}

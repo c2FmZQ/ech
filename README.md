@@ -21,3 +21,4 @@ flowchart LR
 
 The ECH library handles the Client-Facing Server part.
 
+The example directory has working client and server examples.
