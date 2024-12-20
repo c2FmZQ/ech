@@ -178,9 +178,9 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 		return nil, ErrInvalidFormat
 	}
 	hello.LegacyCompressionMethods = slices.Clone(v)
-	if len(hello.LegacyCompressionMethods) != 1 || hello.LegacyCompressionMethods[0] != 0x0 {
-		return nil, ErrIllegalParameter
-	}
+	//if len(hello.LegacyCompressionMethods) != 1 || hello.LegacyCompressionMethods[0] != 0x0 {
+	//	return nil, ErrIllegalParameter
+	//}
 
 	var extensions cryptobyte.String
 	if !s.ReadUint16LengthPrefixed(&extensions) {
