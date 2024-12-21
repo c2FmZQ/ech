@@ -33,7 +33,8 @@ func ConfigList(configs []Config) ([]byte, error) {
 	return b.Bytes()
 }
 
-// NewConfig generates an ECH Config and a private key.
+// NewConfig generates an ECH Config and a private key. It currently supports
+// only DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305.
 func NewConfig(id uint8, publicName []byte) (*ecdh.PrivateKey, Config, error) {
 	if l := len(publicName); l == 0 || l > 255 {
 		return nil, nil, errors.New("invalid public name length")
@@ -55,7 +56,7 @@ func NewConfig(id uint8, publicName []byte) (*ecdh.PrivateKey, Config, error) {
 			b.AddUint16(0x0001) // KDF_HKDF_SHA256
 			b.AddUint16(0x0003) // AEAD_ChaCha20Poly1305
 		})
-		b.AddUint8(0) // maximum_name_length
+		b.AddUint8(uint8(min(len(publicName)+16, 255))) // maximum_name_length
 		b.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
 			b.AddBytes(publicName) // public_name
 		})
