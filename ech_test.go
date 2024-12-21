@@ -424,3 +424,40 @@ func TestRetryChangesServerName(t *testing.T) {
 		t.Fatalf("Second ClientHello: %v, want ErrIllegalParameter", err)
 	}
 }
+
+func TestChangeHpkeKeyNotAllowed(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey := privKey.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	inner1 := newClientHello("private", "echExtInner", "tls1.3")
+	outer1 := newClientHello("public", "tls1.3", config, pubKey, inner1)
+	inner2 := newClientHello("private", "echExtInner", "tls1.3")
+	outer2 := newClientHello("public", "tls1.3", config, pubKey, inner2)
+	c := newFakeConn(append(outer1.bytes(), outer2.bytes()...))
+
+	conn, err := New(t.Context(), c, WithKeys(keys))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if buf, err := readRecord(conn); err != nil {
+		t.Fatalf("First ClientHello: %v", err)
+	} else if got, want := buf, inner1.bytes(); !bytes.Equal(got, want) {
+		t.Fatalf("First ClientHello = %v, want %v", got, want)
+	}
+	if got, want := conn.ServerName(), "private.example.com"; got != want {
+		t.Errorf("ServerName() = %q, want %q", got, want)
+	}
+	if got, want := conn.ECHAccepted(), true; got != want {
+		t.Errorf("ECHAccepted = %v, want %v", got, want)
+	}
+	if _, err := conn.Write(helloRetryReq()); err != nil {
+		t.Fatalf("Write(helloRetryReq): %v", err)
+	}
+	if _, err := readRecord(conn); !errors.Is(err, ErrIllegalParameter) {
+		t.Fatalf("Second ClientHello = %v, want ErrIllegalParameter", err)
+	}
+}

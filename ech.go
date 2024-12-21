@@ -116,7 +116,7 @@ type Conn struct {
 // ECHPresented indicates whether the client presented an Encrypted Client
 // Hello.
 func (c *Conn) ECHPresented() bool {
-	return c != nil && c.outer != nil && c.outer.echExt != nil
+	return c != nil && c.outer != nil && c.outer.echExt != nil && c.outer.echExt.Type == 0
 }
 
 // ECHAccepted indicates whether the client's Encrypted Client Hello was
@@ -170,7 +170,7 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 		if err != nil {
 			return nil, err
 		}
-		if len(h.echExt.Enc) > 0 {
+		if c.hpkeCtx == nil && len(h.echExt.Enc) > 0 {
 			info := append([]byte("tls ech\x00"), key.Config...)
 			ctx, err := hpke.SetupReceipient(hpke.DHKEM_X25519_HKDF_SHA256, h.echExt.KDF, h.echExt.AEAD, echPriv, info, h.echExt.Enc)
 			if err != nil {
