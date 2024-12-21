@@ -15,7 +15,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/c2FmZQ/ech"
+	"github.com/c2fmzq/ech"
 )
 
 func main() {

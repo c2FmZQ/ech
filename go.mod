@@ -1,4 +1,4 @@
-module github.com/c2FmZQ/ech
+module github.com/c2fmzq/ech
 
 go 1.24
 

@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/crypto/cryptobyte"
 
-	"github.com/c2FmZQ/ech/internal/hpke"
+	"github.com/c2fmzq/ech/internal/hpke"
 )
 
 var _ net.Conn = (*Conn)(nil)
