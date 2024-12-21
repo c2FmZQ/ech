@@ -129,18 +129,18 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 	s := cryptobyte.String(buf)
 	var msgType uint8
 	if !s.ReadUint8(&msgType) { // msg_type(1)
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 	if msgType != 0x01 { // ClientHello
 		return nil, fmt.Errorf("%w: msg_type 0x%x != 0x01", ErrUnexpectedMessage, msgType)
 	}
 	var hlength []byte
 	if !s.ReadBytes(&hlength, 3) { // length(3)
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 	msgLength := uint32(hlength[0])<<16 | uint32(hlength[1])<<8 | uint32(hlength[2])
 	if msgLength != uint32(len(s)) {
-		return nil, fmt.Errorf("%w: length %d != %d", ErrInvalidFormat, msgLength, len(s))
+		return nil, fmt.Errorf("%w: length %d != %d", ErrDecodeError, msgLength, len(s))
 	}
 
 	// https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.2
@@ -159,23 +159,23 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 	//     Extension extensions<8..2^16-1>;
 	//   } ClientHello;
 	if !s.ReadUint16(&hello.LegacyVersion) { // legacy_version
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 	if !s.ReadBytes(&hello.Random, 32) { // random
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 
 	var v cryptobyte.String
 	if !s.ReadUint8LengthPrefixed(&v) { // legacy_session_id
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 	hello.LegacySessionID = slices.Clone(v)
 	if !s.ReadUint16LengthPrefixed(&v) { // cipher_suites
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 	hello.CipherSuite = slices.Clone(v)
 	if !s.ReadUint8LengthPrefixed(&v) { // legacy_compression_methods
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 	hello.LegacyCompressionMethods = slices.Clone(v)
 	//if len(hello.LegacyCompressionMethods) != 1 || hello.LegacyCompressionMethods[0] != 0x0 {
@@ -184,7 +184,7 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 
 	var extensions cryptobyte.String
 	if !s.ReadUint16LengthPrefixed(&extensions) {
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 
 	// https://datatracker.ietf.org/doc/html/rfc8446#section-4.2
@@ -206,7 +206,7 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 		var extType uint16
 		var data cryptobyte.String
 		if !extensions.ReadUint16(&extType) || !extensions.ReadUint16LengthPrefixed(&data) {
-			return nil, ErrInvalidFormat
+			return nil, ErrDecodeError
 		}
 		hello.Extensions = append(hello.Extensions, extension{
 			Type: extType,
@@ -236,19 +236,19 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 
 			var serverNameList cryptobyte.String
 			if !data.ReadUint16LengthPrefixed(&serverNameList) {
-				return nil, ErrInvalidFormat
+				return nil, ErrDecodeError
 			}
 			for !serverNameList.Empty() {
 				var nameType uint8
 				var hostName cryptobyte.String
 				if !serverNameList.ReadUint8(&nameType) {
-					return nil, ErrInvalidFormat
+					return nil, ErrDecodeError
 				}
 				if nameType != 0 { // host name
-					return nil, fmt.Errorf("%w: invalid nametype 0x%x", ErrInvalidFormat, nameType)
+					return nil, fmt.Errorf("%w: invalid nametype 0x%x", ErrIllegalParameter, nameType)
 				}
 				if !serverNameList.ReadUint16LengthPrefixed(&hostName) || hello.ServerName != "" {
-					return nil, ErrInvalidFormat
+					return nil, ErrDecodeError
 				}
 				hello.ServerName = string(hostName)
 			}
@@ -271,12 +271,12 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 			//  } ProtocolNameList;
 			var protocolNameList cryptobyte.String
 			if !data.ReadUint16LengthPrefixed(&protocolNameList) {
-				return nil, ErrInvalidFormat
+				return nil, ErrDecodeError
 			}
 			for !protocolNameList.Empty() {
 				var protocolName cryptobyte.String
 				if !protocolNameList.ReadUint8LengthPrefixed(&protocolName) {
-					return nil, ErrInvalidFormat
+					return nil, ErrDecodeError
 				}
 				hello.ALPNProtos = append(hello.ALPNProtos, string(protocolName))
 			}
@@ -292,12 +292,12 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 			// } SupportedVersions;
 			var versions cryptobyte.String
 			if !data.ReadUint8LengthPrefixed(&versions) {
-				return nil, ErrInvalidFormat
+				return nil, ErrDecodeError
 			}
 			for !versions.Empty() {
 				var v uint16
 				if !versions.ReadUint16(&v) {
-					return nil, ErrInvalidFormat
+					return nil, ErrDecodeError
 				}
 				if v >= 0x0304 {
 					hello.tls13 = true
@@ -331,25 +331,25 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 			hello.echExt = &echExt{}
 
 			if !data.ReadUint8(&hello.echExt.Type) { // type
-				return nil, ErrInvalidFormat
+				return nil, ErrDecodeError
 			}
 			if hello.echExt.Type == 0 { // Outer
 				if !data.ReadUint16(&hello.echExt.KDF) { // cipher_suite.kdf
-					return nil, ErrInvalidFormat
+					return nil, ErrDecodeError
 				}
 				if !data.ReadUint16(&hello.echExt.AEAD) { // cipher_suite.aead
-					return nil, ErrInvalidFormat
+					return nil, ErrDecodeError
 				}
 				if !data.ReadUint8(&hello.echExt.ConfigID) { // config_id
-					return nil, ErrInvalidFormat
+					return nil, ErrDecodeError
 				}
 				var v cryptobyte.String
 				if !data.ReadUint16LengthPrefixed(&v) { // enc
-					return nil, ErrInvalidFormat
+					return nil, ErrDecodeError
 				}
 				hello.echExt.Enc = slices.Clone(v)
 				if !data.ReadUint16LengthPrefixed(&v) { // payload
-					return nil, ErrInvalidFormat
+					return nil, ErrDecodeError
 				}
 				hello.echExt.Payload = slices.Clone(v)
 			}

@@ -79,13 +79,13 @@ func parseServerHello(buf []byte) (*serverHello, error) {
 	s := cryptobyte.String(buf)
 	var msgType uint8
 	if !s.ReadUint8(&msgType) { // msg_type(1)
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 	if msgType != 0x02 { // ServerHello
 		return nil, fmt.Errorf("%w: msg_type 0x%x != 0x02", ErrUnexpectedMessage, msgType)
 	}
 	if !s.Skip(3) { // length(3)
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 
 	// struct {
@@ -98,34 +98,34 @@ func parseServerHello(buf []byte) (*serverHello, error) {
 	// } ServerHello;
 
 	if !s.ReadUint16(&hello.LegacyVersion) { // legacy_version
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 	if !s.ReadBytes(&hello.Random, 32) { // random
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 
 	var v cryptobyte.String
 	if !s.ReadUint8LengthPrefixed(&v) { // legacy_session_id
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 	hello.LegacySessionID = slices.Clone(v)
 	if !s.ReadUint16(&hello.CipherSuite) { // cipher_suite
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 	if !s.ReadUint8(&hello.LegacyCompressionMethod) { // legacy_compression_method
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 
 	var extensions cryptobyte.String
 	if !s.ReadUint16LengthPrefixed(&extensions) {
-		return nil, ErrInvalidFormat
+		return nil, ErrDecodeError
 	}
 
 	for !extensions.Empty() {
 		var extType uint16
 		var data cryptobyte.String
 		if !extensions.ReadUint16(&extType) || !extensions.ReadUint16LengthPrefixed(&data) {
-			return nil, ErrInvalidFormat
+			return nil, ErrDecodeError
 		}
 		hello.Extensions = append(hello.Extensions, extension{
 			Type: extType,

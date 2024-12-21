@@ -8,7 +8,6 @@ import (
 )
 
 var (
-	ErrInvalidFormat     = errors.New("invalid format")
 	ErrUnexpectedMessage = errors.New("unexpected message")
 	ErrIllegalParameter  = errors.New("illegal parameter")
 	ErrDecodeError       = errors.New("decode error")
@@ -106,8 +105,6 @@ func readRecord(conn net.Conn) ([]byte, error) {
 func convertErrorsToAlerts(conn net.Conn, err error) {
 	switch {
 	case err == nil:
-	case errors.Is(err, ErrInvalidFormat):
-		sendAlert(conn, 0x2 /* fatal */, 0x2F /* Illegal parameter */)
 	case errors.Is(err, ErrUnexpectedMessage):
 		sendAlert(conn, 0x2 /* fatal */, 0x0a /* Unexpected message */)
 	case errors.Is(err, ErrIllegalParameter):

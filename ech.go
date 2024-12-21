@@ -179,7 +179,7 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 			c.hpkeCtx = ctx
 		}
 		if c.hpkeCtx == nil {
-			return nil, ErrInvalidFormat
+			return nil, ErrIllegalParameter
 		}
 		aad, err := h.marshalAAD()
 		if err != nil {
@@ -225,13 +225,13 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 		s := cryptobyte.String(ext.Data)
 		var want cryptobyte.String
 		if !s.ReadUint8LengthPrefixed(&want) {
-			return nil, ErrInvalidFormat
+			return nil, ErrDecodeError
 		}
 		outerPos := 0
 		for !want.Empty() {
 			var extType uint16
 			if !want.ReadUint16(&extType) {
-				return nil, ErrInvalidFormat
+				return nil, ErrDecodeError
 			}
 			if extType == 0xfe0d {
 				return nil, fmt.Errorf("%w: ech_outer_extensions contains 0x%x", ErrIllegalParameter, extType)
