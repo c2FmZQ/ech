@@ -207,6 +207,9 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 		if err != nil {
 			continue
 		}
+		if string(cfg.PublicName) != h.ServerName {
+			return nil, ErrIllegalParameter
+		}
 	}
 	if len(h.echExt.Enc) == 0 && innerBytes == nil {
 		return nil, ErrDecryptError

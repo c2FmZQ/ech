@@ -336,6 +336,23 @@ func TestValidInner(t *testing.T) {
 	}
 }
 
+func TestCheckPublicName(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey := privKey.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	inner := newClientHello("private", "echExtInner", "tls1.3")
+	outer := newClientHello("private", "tls1.3", config, pubKey, inner)
+	c := newFakeConn(outer.bytes())
+
+	if _, err := New(t.Context(), c, WithKeys(keys), WithDebug(t.Logf)); !errors.Is(err, ErrIllegalParameter) {
+		t.Fatalf("New: %v, want ErrIllegalParameter", err)
+	}
+}
+
 func TestOuterHasECHOuterExt(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
