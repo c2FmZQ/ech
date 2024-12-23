@@ -158,10 +158,10 @@ func (c *Conn) handleClientHello(record []byte, isRetry bool) (outer, inner *cli
 		return nil, nil, fmt.Errorf("%w: ClientHelloOuter has ech type inner", ErrIllegalParameter)
 	}
 	if isRetry {
-		if outer.echExt == nil ||
-			c.outer.echExt.ConfigID != outer.echExt.ConfigID ||
-			c.outer.echExt.KDF != outer.echExt.KDF ||
-			c.outer.echExt.AEAD != outer.echExt.AEAD ||
+		if outer.echExt == nil {
+			return nil, nil, fmt.Errorf("%w: retry ClientHelloOuter missing ech ext", ErrMissingExtension)
+		}
+		if c.outer.echExt.ConfigID != outer.echExt.ConfigID || c.outer.echExt.KDF != outer.echExt.KDF || c.outer.echExt.AEAD != outer.echExt.AEAD ||
 			len(outer.echExt.Enc) > 0 {
 			return nil, nil, fmt.Errorf("%w: retry ClientHelloOuter mismatch", ErrIllegalParameter)
 		}
@@ -175,9 +175,6 @@ func (c *Conn) handleClientHello(record []byte, isRetry bool) (outer, inner *cli
 func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error) {
 	if !h.tls13 || h.echExt == nil || len(c.keys) == 0 {
 		return nil, nil
-	}
-	if h.echExt.Type != 0 {
-		return nil, fmt.Errorf("%w: ech type %d", ErrIllegalParameter, h.echExt.Type)
 	}
 	var innerBytes []byte
 	for _, key := range c.keys {
@@ -306,16 +303,11 @@ func (c *Conn) Read(b []byte) (int, error) {
 		case r[0] == 22 && r[5] == 1 && c.retryCount.Load() == 1:
 			c.debugf("Handshake Retried ClientHello\n")
 			c.readPassthrough = true
-			outer, inner, err := c.handleClientHello(r, true)
+			_, inner, err := c.handleClientHello(r, true)
 			if err != nil {
 				c.readErr = err
 				convertErrorsToAlerts(c, err)
 				return 0, err
-			}
-			if outer.echExt == nil {
-				c.readErr = ErrMissingExtension
-				convertErrorsToAlerts(c, c.readErr)
-				return 0, c.readErr
 			}
 			if inner == nil || inner.echExt == nil || c.inner.ServerName != inner.ServerName || !slices.Equal(c.inner.ALPNProtos, inner.ALPNProtos) {
 				c.readErr = fmt.Errorf("%w: second client_hello mismatch", ErrIllegalParameter)

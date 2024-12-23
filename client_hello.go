@@ -292,7 +292,7 @@ func (c *clientHello) parseExtensions() error {
 			//  } ProtocolNameList;
 			var protocolNameList cryptobyte.String
 			if !data.ReadUint16LengthPrefixed(&protocolNameList) {
-				return fmt.Errorf("%w: protocol_name_list", ErrDecodeError)
+				return fmt.Errorf("%w: protocol name list", ErrDecodeError)
 			}
 			for !protocolNameList.Empty() {
 				var protocolName cryptobyte.String
