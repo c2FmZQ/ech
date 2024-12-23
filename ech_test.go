@@ -64,7 +64,7 @@ func TestConn(t *testing.T) {
 		Config:      config,
 		PrivateKey:  privKey.Bytes(),
 		SendAsRetry: true,
-	}}))
+	}}), WithDebug(t.Logf))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

@@ -11,6 +11,8 @@ var (
 	ErrUnexpectedMessage = errors.New("unexpected message")
 	ErrIllegalParameter  = errors.New("illegal parameter")
 	ErrDecodeError       = errors.New("decode error")
+	ErrMissingExtension  = errors.New("missing extension")
+	ErrDecryptError      = errors.New("decrypt error")
 	ErrNoMatch           = errors.New("ech key mismatch")
 
 	extensionNames = map[uint16]string{
@@ -106,13 +108,17 @@ func convertErrorsToAlerts(conn net.Conn, err error) {
 	switch {
 	case err == nil:
 	case errors.Is(err, ErrUnexpectedMessage):
-		sendAlert(conn, 0x2 /* fatal */, 0x0a /* Unexpected message */)
+		sendAlert(conn, 2 /* fatal */, 10 /* Unexpected message */)
 	case errors.Is(err, ErrIllegalParameter):
-		sendAlert(conn, 0x2 /* fatal */, 0x2F /* Illegal parameter */)
+		sendAlert(conn, 2 /* fatal */, 47 /* Illegal parameter */)
 	case errors.Is(err, ErrDecodeError):
-		sendAlert(conn, 0x2 /* fatal */, 0x32 /* Decode error */)
+		sendAlert(conn, 2 /* fatal */, 50 /* Decode error */)
+	case errors.Is(err, ErrDecryptError):
+		sendAlert(conn, 2 /* fatal */, 51 /* Decrypt Error */)
+	case errors.Is(err, ErrMissingExtension):
+		sendAlert(conn, 2 /* fatal */, 109 /* Missing Extension */)
 	default:
-		sendAlert(conn, 0x2 /* fatal */, 0x28 /* Handshake failure */)
+		sendAlert(conn, 2 /* fatal */, 40 /* Handshake failure */)
 	}
 }
 
