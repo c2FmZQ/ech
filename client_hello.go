@@ -9,15 +9,15 @@ import (
 )
 
 type clientHello struct {
-	ServerName string
-	ALPNProtos []string
-
 	LegacyVersion            uint16
 	Random                   []uint8
 	LegacySessionID          []byte
 	CipherSuite              []byte
 	LegacyCompressionMethods []byte
 	Extensions               []extension
+
+	ServerName string
+	ALPNProtos []string
 
 	hasECHOuterExtensions bool
 	tls13                 bool
@@ -114,7 +114,7 @@ func (c *clientHello) marshal(aad bool) ([]byte, error) {
 }
 
 func parseClientHello(buf []byte) (*clientHello, error) {
-	var hello clientHello
+	hello := new(clientHello)
 
 	// https://datatracker.ietf.org/doc/html/rfc8446#section-4
 	//
@@ -134,14 +134,12 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 	if msgType != 0x01 { // ClientHello
 		return nil, fmt.Errorf("%w: msg_type 0x%x != 0x01", ErrUnexpectedMessage, msgType)
 	}
-	var hlength []byte
-	if !s.ReadBytes(&hlength, 3) { // length(3)
+	var ss cryptobyte.String
+	if !s.ReadUint24LengthPrefixed(&ss) {
 		return nil, ErrDecodeError
 	}
-	msgLength := uint32(hlength[0])<<16 | uint32(hlength[1])<<8 | uint32(hlength[2])
-	if msgLength != uint32(len(s)) {
-		return nil, fmt.Errorf("%w: length %d != %d", ErrDecodeError, msgLength, len(s))
-	}
+	zeros := s
+	s = ss
 
 	// https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.2
 	// ClientHello
@@ -212,7 +210,30 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 			Type: extType,
 			Data: slices.Clone(data),
 		})
-		switch extType {
+	}
+	if err := hello.parseExtensions(); err != nil {
+		return nil, err
+	}
+	if hello.echExt != nil && hello.echExt.Type == 1 {
+		for _, p := range zeros {
+			if p != 0 {
+				return nil, ErrIllegalParameter
+			}
+		}
+	}
+	return hello, nil
+}
+
+func (c *clientHello) parseExtensions() error {
+	c.ServerName = ""
+	c.ALPNProtos = nil
+	c.hasECHOuterExtensions = false
+	c.tls13 = false
+	c.echExt = nil
+
+	for _, ext := range c.Extensions {
+		data := cryptobyte.String(ext.Data)
+		switch ext.Type {
 		case 0:
 			// https://datatracker.ietf.org/doc/html/rfc6066#section-3
 			// Server Name Indication
@@ -236,21 +257,21 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 
 			var serverNameList cryptobyte.String
 			if !data.ReadUint16LengthPrefixed(&serverNameList) {
-				return nil, ErrDecodeError
+				return fmt.Errorf("%w: serverNameList", ErrDecodeError)
 			}
 			for !serverNameList.Empty() {
 				var nameType uint8
 				var hostName cryptobyte.String
 				if !serverNameList.ReadUint8(&nameType) {
-					return nil, ErrDecodeError
+					return fmt.Errorf("%w: name type", ErrDecodeError)
 				}
 				if nameType != 0 { // host name
-					return nil, fmt.Errorf("%w: invalid nametype 0x%x", ErrIllegalParameter, nameType)
+					return fmt.Errorf("%w: invalid nametype 0x%x", ErrIllegalParameter, nameType)
 				}
-				if !serverNameList.ReadUint16LengthPrefixed(&hostName) || hello.ServerName != "" {
-					return nil, ErrDecodeError
+				if !serverNameList.ReadUint16LengthPrefixed(&hostName) || c.ServerName != "" {
+					return fmt.Errorf("%w: host name", ErrDecodeError)
 				}
-				hello.ServerName = string(hostName)
+				c.ServerName = string(hostName)
 			}
 		case 16:
 			// https://datatracker.ietf.org/doc/html/rfc7301#section-3
@@ -271,14 +292,14 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 			//  } ProtocolNameList;
 			var protocolNameList cryptobyte.String
 			if !data.ReadUint16LengthPrefixed(&protocolNameList) {
-				return nil, ErrDecodeError
+				return fmt.Errorf("%w: protocol name list", ErrDecodeError)
 			}
 			for !protocolNameList.Empty() {
 				var protocolName cryptobyte.String
 				if !protocolNameList.ReadUint8LengthPrefixed(&protocolName) {
-					return nil, ErrDecodeError
+					return fmt.Errorf("%w: protocol name", ErrDecodeError)
 				}
-				hello.ALPNProtos = append(hello.ALPNProtos, string(protocolName))
+				c.ALPNProtos = append(c.ALPNProtos, string(protocolName))
 			}
 
 		case 43:
@@ -292,20 +313,20 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 			// } SupportedVersions;
 			var versions cryptobyte.String
 			if !data.ReadUint8LengthPrefixed(&versions) {
-				return nil, ErrDecodeError
+				return fmt.Errorf("%w: supported versions", ErrDecodeError)
 			}
 			for !versions.Empty() {
 				var v uint16
 				if !versions.ReadUint16(&v) {
-					return nil, ErrDecodeError
+					return fmt.Errorf("%w: version", ErrDecodeError)
 				}
 				if v >= 0x0304 {
-					hello.tls13 = true
+					c.tls13 = true
 				}
 			}
 
 		case 0xfd00:
-			hello.hasECHOuterExtensions = true
+			c.hasECHOuterExtensions = true
 
 		case 0xfe0d:
 			// https://datatracker.ietf.org/doc/draft-ietf-tls-esni/
@@ -328,39 +349,35 @@ func parseClientHello(buf []byte) (*clientHello, error) {
 			//                   Empty;
 			//           };
 			//        } ECHClientHello;
-			hello.echExt = &echExt{}
+			c.echExt = &echExt{}
 
-			if !data.ReadUint8(&hello.echExt.Type) { // type
-				return nil, ErrDecodeError
+			if !data.ReadUint8(&c.echExt.Type) { // type
+				return fmt.Errorf("%w: ech type", ErrDecodeError)
 			}
-			if hello.echExt.Type == 0 { // Outer
-				if !data.ReadUint16(&hello.echExt.KDF) { // cipher_suite.kdf
-					return nil, ErrDecodeError
+			if c.echExt.Type > 1 {
+				return fmt.Errorf("%w: ech type %d", ErrIllegalParameter, c.echExt.Type)
+			}
+			if c.echExt.Type == 0 { // Outer
+				if !data.ReadUint16(&c.echExt.KDF) { // cipher_suite.kdf
+					return fmt.Errorf("%w: ech ext kdf", ErrDecodeError)
 				}
-				if !data.ReadUint16(&hello.echExt.AEAD) { // cipher_suite.aead
-					return nil, ErrDecodeError
+				if !data.ReadUint16(&c.echExt.AEAD) { // cipher_suite.aead
+					return fmt.Errorf("%w: ech ext aead", ErrDecodeError)
 				}
-				if !data.ReadUint8(&hello.echExt.ConfigID) { // config_id
-					return nil, ErrDecodeError
+				if !data.ReadUint8(&c.echExt.ConfigID) { // config_id
+					return fmt.Errorf("%w: ech ext config id", ErrDecodeError)
 				}
 				var v cryptobyte.String
 				if !data.ReadUint16LengthPrefixed(&v) { // enc
-					return nil, ErrDecodeError
+					return fmt.Errorf("%w: ech ext enc", ErrDecodeError)
 				}
-				hello.echExt.Enc = slices.Clone(v)
+				c.echExt.Enc = slices.Clone(v)
 				if !data.ReadUint16LengthPrefixed(&v) { // payload
-					return nil, ErrDecodeError
+					return fmt.Errorf("%w: ech ext payload", ErrDecodeError)
 				}
-				hello.echExt.Payload = slices.Clone(v)
+				c.echExt.Payload = slices.Clone(v)
 			}
 		}
 	}
-	if hello.echExt != nil && hello.echExt.Type == 1 {
-		for _, p := range s {
-			if p != 0 {
-				return nil, ErrIllegalParameter
-			}
-		}
-	}
-	return &hello, nil
+	return nil
 }

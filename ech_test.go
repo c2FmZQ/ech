@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net"
 	"testing"
+
+	"github.com/c2FmZQ/ech/internal/hpke"
 )
 
 func TestConn(t *testing.T) {
@@ -64,7 +66,7 @@ func TestConn(t *testing.T) {
 		Config:      config,
 		PrivateKey:  privKey.Bytes(),
 		SendAsRetry: true,
-	}}))
+	}}), WithDebug(t.Logf))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -334,6 +336,23 @@ func TestValidInner(t *testing.T) {
 	}
 }
 
+func TestCheckPublicName(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey := privKey.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	inner := newClientHello("private", "echExtInner", "tls1.3")
+	outer := newClientHello("private", "tls1.3", config, pubKey, inner)
+	c := newFakeConn(outer.bytes())
+
+	if _, err := New(t.Context(), c, WithKeys(keys), WithDebug(t.Logf)); !errors.Is(err, ErrIllegalParameter) {
+		t.Fatalf("New: %v, want ErrIllegalParameter", err)
+	}
+}
+
 func TestOuterHasECHOuterExt(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -459,5 +478,165 @@ func TestChangeHpkeKeyNotAllowed(t *testing.T) {
 	}
 	if _, err := readRecord(conn); !errors.Is(err, ErrIllegalParameter) {
 		t.Fatalf("Second ClientHello = %v, want ErrIllegalParameter", err)
+	}
+}
+
+func TestRetryChangeConfigNotAllowed(t *testing.T) {
+	privKey1, config1, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey1 := privKey1.PublicKey()
+	privKey2, config2, err := NewConfig(2, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey2 := privKey2.PublicKey()
+	keys := []Key{
+		{Config: config1, PrivateKey: privKey1.Bytes()},
+		{Config: config2, PrivateKey: privKey2.Bytes()},
+	}
+
+	inner1 := newClientHello("private", "echExtInner", "tls1.3")
+	outer1 := newClientHello("public", "tls1.3", config1, pubKey1, inner1)
+	inner2 := newClientHello("private", "echExtInner", "tls1.3")
+	outer2 := newClientHello("public", "tls1.3", outer1.hpkeCtx, config2, pubKey2, inner2)
+	c := newFakeConn(append(outer1.bytes(), outer2.bytes()...))
+
+	conn, err := New(t.Context(), c, WithKeys(keys))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if buf, err := readRecord(conn); err != nil {
+		t.Fatalf("First ClientHello: %v", err)
+	} else if got, want := buf, inner1.bytes(); !bytes.Equal(got, want) {
+		t.Fatalf("First ClientHello = %v, want %v", got, want)
+	}
+	if got, want := conn.ServerName(), "private.example.com"; got != want {
+		t.Errorf("ServerName() = %q, want %q", got, want)
+	}
+	if got, want := conn.ECHAccepted(), true; got != want {
+		t.Errorf("ECHAccepted = %v, want %v", got, want)
+	}
+	if _, err := conn.Write(helloRetryReq()); err != nil {
+		t.Fatalf("Write(helloRetryReq): %v", err)
+	}
+	if _, err := readRecord(conn); !errors.Is(err, ErrIllegalParameter) {
+		t.Fatalf("Second ClientHello: %v, want ErrIllegalParameter", err)
+	}
+}
+
+func TestRetryDecryptError(t *testing.T) {
+	privKey1, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey1 := privKey1.PublicKey()
+	privKey2, _, err := NewConfig(2, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey2 := privKey2.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey1.Bytes()}}
+
+	_, hpkeCtx2, err := hpke.SetupSender(hpke.DHKEM_X25519_HKDF_SHA256, 0x0001, 0x0003, pubKey2, append([]byte("tls ech\x00"), config...))
+	if err != nil {
+		t.Fatalf("hpke.SetupSender: %v", err)
+	}
+
+	inner1 := newClientHello("private", "echExtInner", "tls1.3")
+	outer1 := newClientHello("public", "tls1.3", config, pubKey1, inner1)
+	inner2 := newClientHello("private", "echExtInner", "tls1.3")
+	outer2 := newClientHello("public", "tls1.3", hpkeCtx2, config, pubKey2, inner2)
+	c := newFakeConn(append(outer1.bytes(), outer2.bytes()...))
+
+	conn, err := New(t.Context(), c, WithKeys(keys))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if buf, err := readRecord(conn); err != nil {
+		t.Fatalf("First ClientHello: %v", err)
+	} else if got, want := buf, inner1.bytes(); !bytes.Equal(got, want) {
+		t.Fatalf("First ClientHello = %v, want %v", got, want)
+	}
+	if got, want := conn.ServerName(), "private.example.com"; got != want {
+		t.Errorf("ServerName() = %q, want %q", got, want)
+	}
+	if got, want := conn.ECHAccepted(), true; got != want {
+		t.Errorf("ECHAccepted = %v, want %v", got, want)
+	}
+	if _, err := conn.Write(helloRetryReq()); err != nil {
+		t.Fatalf("Write(helloRetryReq): %v", err)
+	}
+	if _, err := readRecord(conn); !errors.Is(err, ErrDecryptError) {
+		t.Fatalf("Second ClientHello: %v, want ErrDecryptError", err)
+	}
+}
+
+func TestRetryMissingECHExt(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey := privKey.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	inner1 := newClientHello("private", "echExtInner", "tls1.3")
+	outer1 := newClientHello("public", "tls1.3", config, pubKey, inner1)
+	outer2 := newClientHello("public", "tls1.3")
+	c := newFakeConn(append(outer1.bytes(), outer2.bytes()...))
+
+	conn, err := New(t.Context(), c, WithKeys(keys))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if buf, err := readRecord(conn); err != nil {
+		t.Fatalf("First ClientHello: %v", err)
+	} else if got, want := buf, inner1.bytes(); !bytes.Equal(got, want) {
+		t.Fatalf("First ClientHello = %v, want %v", got, want)
+	}
+	if got, want := conn.ServerName(), "private.example.com"; got != want {
+		t.Errorf("ServerName() = %q, want %q", got, want)
+	}
+	if got, want := conn.ECHAccepted(), true; got != want {
+		t.Errorf("ECHAccepted = %v, want %v", got, want)
+	}
+	if _, err := conn.Write(helloRetryReq()); err != nil {
+		t.Fatalf("Write(helloRetryReq): %v", err)
+	}
+	if _, err := readRecord(conn); !errors.Is(err, ErrMissingExtension) {
+		t.Fatalf("Second ClientHello: %v, want ErrMissingExtension", err)
+	}
+}
+
+func TestOuterWithECHTypeInner(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	outer := newClientHello("public", "echExtInner", "tls1.3")
+	c := newFakeConn(outer.bytes())
+
+	if _, err = New(t.Context(), c, WithKeys(keys)); !errors.Is(err, ErrIllegalParameter) {
+		t.Fatalf("New() = %v, want ErrIllegalParameter", err)
+	}
+}
+
+func TestInnerTLS12(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey := privKey.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	inner := newClientHello("private", "echExtInner")
+	outer := newClientHello("public", "tls1.3", config, pubKey, inner)
+	c := newFakeConn(outer.bytes())
+
+	if _, err := New(t.Context(), c, WithKeys(keys)); !errors.Is(err, ErrIllegalParameter) {
+		t.Fatalf("New: %v, want ErrIllegalParameter", err)
 	}
 }

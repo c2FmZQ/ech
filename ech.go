@@ -77,7 +77,7 @@ func New(ctx context.Context, conn net.Conn, options ...Option) (outConn *Conn, 
 	if outConn.debugf == nil {
 		outConn.debugf = func(string, ...any) {}
 	}
-	if outConn.outer, outConn.inner, err = outConn.handleClientHello(record); err != nil {
+	if outConn.outer, outConn.inner, err = outConn.handleClientHello(record, false); err != nil {
 		return outConn, err
 	}
 	outConn.readPassthrough = outConn.inner == nil
@@ -147,12 +147,24 @@ func (c *Conn) ALPNProtos() []string {
 	return nil
 }
 
-func (c *Conn) handleClientHello(record []byte) (outer, inner *clientHello, err error) {
+func (c *Conn) handleClientHello(record []byte, isRetry bool) (outer, inner *clientHello, err error) {
 	if outer, err = parseClientHello(record[5:]); err != nil {
 		return nil, nil, err
 	}
 	if outer.hasECHOuterExtensions {
 		return nil, nil, fmt.Errorf("%w: ClientHelloOuter has ech_outer_extensions", ErrIllegalParameter)
+	}
+	if len(c.keys) > 0 && outer.echExt != nil && outer.echExt.Type == 1 {
+		return nil, nil, fmt.Errorf("%w: ClientHelloOuter has ech type inner", ErrIllegalParameter)
+	}
+	if isRetry {
+		if outer.echExt == nil {
+			return nil, nil, fmt.Errorf("%w: retry ClientHelloOuter missing ech ext", ErrMissingExtension)
+		}
+		if c.outer.echExt.ConfigID != outer.echExt.ConfigID || c.outer.echExt.KDF != outer.echExt.KDF || c.outer.echExt.AEAD != outer.echExt.AEAD ||
+			len(outer.echExt.Enc) > 0 {
+			return nil, nil, fmt.Errorf("%w: retry ClientHelloOuter mismatch", ErrIllegalParameter)
+		}
 	}
 	if inner, err = c.processEncryptedClientHello(outer); err != nil && err != ErrNoMatch {
 		return nil, nil, err
@@ -161,11 +173,17 @@ func (c *Conn) handleClientHello(record []byte) (outer, inner *clientHello, err 
 }
 
 func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error) {
-	if !h.tls13 || h.echExt == nil || h.echExt.Type != 0 || len(c.keys) == 0 {
+	if !h.tls13 || h.echExt == nil || len(c.keys) == 0 {
 		return nil, nil
 	}
 	var innerBytes []byte
 	for _, key := range c.keys {
+		cfg, err := parseConfig(key.Config)
+		if err != nil || cfg.ID != h.echExt.ConfigID || slices.IndexFunc(cfg.CipherSuites, func(cs cipherSuite) bool {
+			return cs.KDF == h.echExt.KDF && cs.AEAD == h.echExt.AEAD
+		}) == -1 {
+			continue
+		}
 		echPriv, err := hpke.ParseHPKEPrivateKey(hpke.DHKEM_X25519_HKDF_SHA256, key.PrivateKey)
 		if err != nil {
 			return nil, err
@@ -189,6 +207,12 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 		if err != nil {
 			continue
 		}
+		if string(cfg.PublicName) != h.ServerName {
+			return nil, ErrIllegalParameter
+		}
+	}
+	if len(h.echExt.Enc) == 0 && innerBytes == nil {
+		return nil, ErrDecryptError
 	}
 	if innerBytes == nil {
 		return nil, ErrNoMatch
@@ -253,13 +277,14 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 		}
 	}
 	inner.Extensions = newExt
-
 	// Parse the decoded inner hello again to extract extensions data, e.g. ALPNProtos.
-	m, err := inner.Marshal()
-	if err != nil {
+	if err := inner.parseExtensions(); err != nil {
 		return nil, err
 	}
-	return parseClientHello(m[5:])
+	if !inner.tls13 {
+		return nil, fmt.Errorf("%w: inner doesn't offer tls 1.3", ErrIllegalParameter)
+	}
+	return inner, nil
 }
 
 func (c *Conn) Read(b []byte) (int, error) {
@@ -280,13 +305,14 @@ func (c *Conn) Read(b []byte) (int, error) {
 			c.readPassthrough = true
 		case r[0] == 22 && r[5] == 1 && c.retryCount.Load() == 1:
 			c.debugf("Handshake Retried ClientHello\n")
-			_, inner, err := c.handleClientHello(r)
+			c.readPassthrough = true
+			_, inner, err := c.handleClientHello(r, true)
 			if err != nil {
 				c.readErr = err
 				convertErrorsToAlerts(c, err)
 				return 0, err
 			}
-			if inner == nil || c.inner.ServerName != inner.ServerName || !slices.Equal(c.inner.ALPNProtos, inner.ALPNProtos) {
+			if inner == nil || inner.echExt == nil || c.inner.ServerName != inner.ServerName || !slices.Equal(c.inner.ALPNProtos, inner.ALPNProtos) {
 				c.readErr = fmt.Errorf("%w: second client_hello mismatch", ErrIllegalParameter)
 				convertErrorsToAlerts(c, c.readErr)
 				return 0, c.readErr
@@ -356,6 +382,7 @@ func (c *Conn) inspectWrite(record []byte) error {
 		}
 		if h.IsHelloRetryRequest() {
 			c.debugf("HelloRetryRequest: %s\n", h)
+			c.writePassthrough = true
 			c.retryCount.Add(1)
 		}
 	}

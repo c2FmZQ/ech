@@ -69,3 +69,61 @@ func NewConfig(id uint8, publicName []byte) (*ecdh.PrivateKey, Config, error) {
 	}
 	return privKey, conf, nil
 }
+
+type config struct {
+	Version           uint16
+	ID                uint8
+	KEMID             uint16
+	PublicKey         cryptobyte.String
+	CipherSuites      []cipherSuite
+	MinimumNameLength uint8
+	PublicName        cryptobyte.String
+}
+
+type cipherSuite struct {
+	KDF  uint16
+	AEAD uint16
+}
+
+func parseConfig(cfg []byte) (config, error) {
+	var out config
+	s := cryptobyte.String(cfg)
+	if !s.ReadUint16(&out.Version) {
+		return out, ErrDecodeError
+	}
+	var ss cryptobyte.String
+	if !s.ReadUint16LengthPrefixed(&ss) {
+		return out, ErrDecodeError
+	}
+	s = ss
+	if !s.ReadUint8(&out.ID) {
+		return out, ErrDecodeError
+	}
+	if !s.ReadUint16(&out.KEMID) {
+		return out, ErrDecodeError
+	}
+	if !s.ReadUint16LengthPrefixed(&out.PublicKey) {
+		return out, ErrDecodeError
+	}
+	var cs cryptobyte.String
+	if !s.ReadUint16LengthPrefixed(&cs) {
+		return out, ErrDecodeError
+	}
+	for !cs.Empty() {
+		var suite cipherSuite
+		if !cs.ReadUint16(&suite.KDF) {
+			return out, ErrDecodeError
+		}
+		if !cs.ReadUint16(&suite.AEAD) {
+			return out, ErrDecodeError
+		}
+		out.CipherSuites = append(out.CipherSuites, suite)
+	}
+	if !s.ReadUint8(&out.MinimumNameLength) {
+		return out, ErrDecodeError
+	}
+	if !s.ReadUint8LengthPrefixed(&out.PublicName) {
+		return out, ErrDecodeError
+	}
+	return out, nil
+}
