@@ -1,17 +1,17 @@
-// Package implements a library to support Encrypted Client Hello with a Split
+// Package ech implements a library to support Encrypted Client Hello with a Split
 // Mode Topology, as described in https://datatracker.ietf.org/doc/draft-ietf-tls-esni/
 //
 //	Client ----> Client-Facing Server ----> Backend Servers
 //	             (public.example.com)       (private1.example.com)
 //	                                        (private2.example.com)
 //
-// A `ech.Conn` handles the Client-Facing Server part. It transparently inspects
+// A [ech.Conn] handles the Client-Facing Server part. It transparently inspects
 // the TLS handshake and decrypts/decodes Encrypted Client Hello messages. The
 // decoded ServerName and/or ALPN protocols can then be used to route the TLS
-// connection to the right backend server.
+// connection to the correct backend server.
 //
 // A regular [tls.Server] Conn with EncryptedClientHelloKeys set in its
-// tls.Config is required to handle the ECH Config PublicName. The other backend
+// [tls.Config] is required to handle the ECH Config PublicName. The other backend
 // servers don't need the ECH keys.
 //
 //	ln, err := net.Listen("tcp", ":8443")
