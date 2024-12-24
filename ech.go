@@ -178,8 +178,8 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 	}
 	var innerBytes []byte
 	for _, key := range c.keys {
-		cfg, err := parseConfig(key.Config)
-		if err != nil || cfg.ID != h.echExt.ConfigID || slices.IndexFunc(cfg.CipherSuites, func(cs cipherSuite) bool {
+		cfg, err := Config(key.Config).Spec()
+		if err != nil || cfg.ID != h.echExt.ConfigID || slices.IndexFunc(cfg.CipherSuites, func(cs CipherSuite) bool {
 			return cs.KDF == h.echExt.KDF && cs.AEAD == h.echExt.AEAD
 		}) == -1 {
 			continue
