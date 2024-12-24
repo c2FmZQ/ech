@@ -1,5 +1,3 @@
-// Package ech implements tools to support Encrypted Client Hello with a Split
-// Mode Topology.
 package ech
 
 import (
