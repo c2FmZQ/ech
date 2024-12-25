@@ -159,7 +159,7 @@ func (c *Conn) handleClientHello(record []byte, isRetry bool) (outer, inner *cli
 		if outer.echExt == nil {
 			return nil, nil, fmt.Errorf("%w: retry ClientHelloOuter missing ech ext", ErrMissingExtension)
 		}
-		if c.outer.echExt.ConfigID != outer.echExt.ConfigID || c.outer.echExt.KDF != outer.echExt.KDF || c.outer.echExt.AEAD != outer.echExt.AEAD ||
+		if c.outer.echExt.ConfigID != outer.echExt.ConfigID || c.outer.echExt.CipherSuite != outer.echExt.CipherSuite ||
 			len(outer.echExt.Enc) > 0 {
 			return nil, nil, fmt.Errorf("%w: retry ClientHelloOuter mismatch", ErrIllegalParameter)
 		}
@@ -178,7 +178,7 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 	for _, key := range c.keys {
 		cfg, err := Config(key.Config).Spec()
 		if err != nil || cfg.ID != h.echExt.ConfigID || slices.IndexFunc(cfg.CipherSuites, func(cs CipherSuite) bool {
-			return cs.KDF == h.echExt.KDF && cs.AEAD == h.echExt.AEAD
+			return cs == h.echExt.CipherSuite
 		}) == -1 {
 			continue
 		}
@@ -188,7 +188,7 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 				return nil, err
 			}
 			info := append([]byte("tls ech\x00"), key.Config...)
-			ctx, err := hpke.SetupReceipient(hpke.DHKEM_X25519_HKDF_SHA256, h.echExt.KDF, h.echExt.AEAD, echPriv, info, h.echExt.Enc)
+			ctx, err := hpke.SetupReceipient(hpke.DHKEM_X25519_HKDF_SHA256, h.echExt.CipherSuite.KDF, h.echExt.CipherSuite.AEAD, echPriv, info, h.echExt.Enc)
 			if err != nil {
 				continue
 			}
