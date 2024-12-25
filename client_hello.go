@@ -25,12 +25,11 @@ type clientHello struct {
 }
 
 type echExt struct {
-	Type     uint8
-	KDF      uint16
-	AEAD     uint16
-	ConfigID uint8
-	Enc      []byte
-	Payload  []byte
+	Type        uint8
+	CipherSuite CipherSuite
+	ConfigID    uint8
+	Enc         []byte
+	Payload     []byte
 }
 
 func (c clientHello) String() string {
@@ -47,8 +46,7 @@ func (c clientHello) String() string {
 	if c.echExt != nil {
 		fmt.Fprintf(&b, "ECH Type: 0x%02x\n", c.echExt.Type)
 		if c.echExt.Type == 0 {
-			fmt.Fprintf(&b, "ECH KDF: 0x%04x\n", c.echExt.KDF)
-			fmt.Fprintf(&b, "ECH AEAD: 0x%04x\n", c.echExt.AEAD)
+			fmt.Fprintf(&b, "ECH CipherSuite: KDF 0x%04x AEAD 0x%04x\n", c.echExt.CipherSuite.KDF, c.echExt.CipherSuite.AEAD)
 			fmt.Fprintf(&b, "ECH ConfigID: 0x%02x\n", c.echExt.ConfigID)
 			fmt.Fprintf(&b, "ECH Enc: 0x%x\n", c.echExt.Enc)
 			fmt.Fprintf(&b, "ECH Payload: 0x%x\n", c.echExt.Payload)
@@ -358,10 +356,10 @@ func (c *clientHello) parseExtensions() error {
 				return fmt.Errorf("%w: ech type %d", ErrIllegalParameter, c.echExt.Type)
 			}
 			if c.echExt.Type == 0 { // Outer
-				if !data.ReadUint16(&c.echExt.KDF) { // cipher_suite.kdf
+				if !data.ReadUint16(&c.echExt.CipherSuite.KDF) { // cipher_suite.kdf
 					return fmt.Errorf("%w: ech ext kdf", ErrDecodeError)
 				}
-				if !data.ReadUint16(&c.echExt.AEAD) { // cipher_suite.aead
+				if !data.ReadUint16(&c.echExt.CipherSuite.AEAD) { // cipher_suite.aead
 					return fmt.Errorf("%w: ech ext aead", ErrDecodeError)
 				}
 				if !data.ReadUint8(&c.echExt.ConfigID) { // config_id
