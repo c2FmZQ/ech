@@ -13,7 +13,7 @@ var (
 	ErrDecodeError       = errors.New("decode error")
 	ErrMissingExtension  = errors.New("missing extension")
 	ErrDecryptError      = errors.New("decrypt error")
-	ErrNoMatch           = errors.New("ech key mismatch")
+	errNoMatch           = errors.New("ech key mismatch")
 
 	extensionNames = map[uint16]string{
 		0:      "server_name",

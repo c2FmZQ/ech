@@ -53,5 +53,7 @@
 //	        }()
 //	}
 //
+// ECH Configs and ECH ConfigLists are created with [ech.NewConfig] and [ech.ConfigList].
+//
 // The example directory has working client and server examples.
 package ech

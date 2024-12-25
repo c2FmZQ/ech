@@ -164,7 +164,7 @@ func (c *Conn) handleClientHello(record []byte, isRetry bool) (outer, inner *cli
 			return nil, nil, fmt.Errorf("%w: retry ClientHelloOuter mismatch", ErrIllegalParameter)
 		}
 	}
-	if inner, err = c.processEncryptedClientHello(outer); err != nil && err != ErrNoMatch {
+	if inner, err = c.processEncryptedClientHello(outer); err != nil && err != errNoMatch {
 		return nil, nil, err
 	}
 	return outer, inner, nil
@@ -182,11 +182,11 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 		}) == -1 {
 			continue
 		}
-		echPriv, err := hpke.ParseHPKEPrivateKey(hpke.DHKEM_X25519_HKDF_SHA256, key.PrivateKey)
-		if err != nil {
-			return nil, err
-		}
 		if c.hpkeCtx == nil && len(h.echExt.Enc) > 0 {
+			echPriv, err := hpke.ParseHPKEPrivateKey(hpke.DHKEM_X25519_HKDF_SHA256, key.PrivateKey)
+			if err != nil {
+				return nil, err
+			}
 			info := append([]byte("tls ech\x00"), key.Config...)
 			ctx, err := hpke.SetupReceipient(hpke.DHKEM_X25519_HKDF_SHA256, h.echExt.KDF, h.echExt.AEAD, echPriv, info, h.echExt.Enc)
 			if err != nil {
@@ -213,7 +213,7 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 		return nil, ErrDecryptError
 	}
 	if innerBytes == nil {
-		return nil, ErrNoMatch
+		return nil, errNoMatch
 	}
 	b := cryptobyte.NewBuilder(nil)
 	b.AddUint8(0x01) // msg_type: ClientHello
