@@ -8,6 +8,7 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 )
 
+// The Client Hello message is specified in RFC 8446 Section 4.1.2
 type clientHello struct {
 	LegacyVersion            uint16
 	Random                   []uint8
@@ -24,6 +25,8 @@ type clientHello struct {
 	echExt                *echExt
 }
 
+// The ECH Extension as specified in Section 5 of
+// https://datatracker.ietf.org/doc/draft-ietf-tls-esni/.
 type echExt struct {
 	Type        uint8
 	CipherSuite CipherSuite
@@ -352,6 +355,9 @@ func (c *clientHello) parseExtensions() error {
 			if !data.ReadUint8(&c.echExt.Type) { // type
 				return fmt.Errorf("%w: ech type", ErrDecodeError)
 			}
+			// Section 7
+			// If ECHClientHello.type is not a valid ECHClientHelloType, then the
+			// server MUST abort with an "illegal_parameter" alert.
 			if c.echExt.Type > 1 {
 				return fmt.Errorf("%w: ech type %d", ErrIllegalParameter, c.echExt.Type)
 			}

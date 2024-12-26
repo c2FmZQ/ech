@@ -149,28 +149,41 @@ func (c *Conn) handleClientHello(record []byte, isRetry bool) (outer, inner *cli
 	if outer, err = parseClientHello(record[5:]); err != nil {
 		return nil, nil, err
 	}
+	// Section 5.1
+	// The "ech_outer_extensions" extension can only be included in
+	// EncodedClientHelloInner, and MUST NOT appear in either
+	// ClientHelloOuter or ClientHelloInner.
 	if outer.hasECHOuterExtensions {
 		return nil, nil, fmt.Errorf("%w: ClientHelloOuter has ech_outer_extensions", ErrIllegalParameter)
 	}
+	// Section 7
+	// In split mode, a client-facing server which receives a ClientHello with
+	// ECHClientHello.type of inner MUST abort with an "illegal_parameter" alert.
 	if len(c.keys) > 0 && outer.echExt != nil && outer.echExt.Type == 1 {
 		return nil, nil, fmt.Errorf("%w: ClientHelloOuter has ech type inner", ErrIllegalParameter)
 	}
-	if isRetry {
-		if outer.echExt == nil {
-			return nil, nil, fmt.Errorf("%w: retry ClientHelloOuter missing ech ext", ErrMissingExtension)
-		}
-		if c.outer.echExt.ConfigID != outer.echExt.ConfigID || c.outer.echExt.CipherSuite != outer.echExt.CipherSuite ||
-			len(outer.echExt.Enc) > 0 {
-			return nil, nil, fmt.Errorf("%w: retry ClientHelloOuter mismatch", ErrIllegalParameter)
-		}
-	}
-	if inner, err = c.processEncryptedClientHello(outer); err != nil && err != errNoMatch {
+	if inner, err = c.processEncryptedClientHello(outer, isRetry); err != nil && err != errNoMatch {
 		return nil, nil, err
+	}
+	if isRetry {
+		if inner == nil || inner.echExt == nil || c.inner.ServerName != inner.ServerName || !slices.Equal(c.inner.ALPNProtos, inner.ALPNProtos) {
+			return nil, nil, fmt.Errorf("%w: second client_hello mismatch", ErrIllegalParameter)
+		}
 	}
 	return outer, inner, nil
 }
 
-func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error) {
+// processEncryptedClientHello implements the Client-Facing Server logic
+// specified in Section 7.1.
+func (c *Conn) processEncryptedClientHello(h *clientHello, isRetry bool) (*clientHello, error) {
+	if isRetry { // Section 7.1.1
+		if h.echExt == nil {
+			return nil, fmt.Errorf("%w: retry ClientHelloOuter missing ech ext", ErrMissingExtension)
+		}
+		if c.outer.echExt.ConfigID != h.echExt.ConfigID || c.outer.echExt.CipherSuite != h.echExt.CipherSuite || len(h.echExt.Enc) > 0 {
+			return nil, fmt.Errorf("%w: retry ClientHelloOuter mismatch", ErrIllegalParameter)
+		}
+	}
 	if !h.tls13 || h.echExt == nil || len(c.keys) == 0 {
 		return nil, nil
 	}
@@ -209,12 +222,17 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 			return nil, ErrIllegalParameter
 		}
 	}
-	if len(h.echExt.Enc) == 0 && innerBytes == nil {
-		return nil, ErrDecryptError
-	}
 	if innerBytes == nil {
+		// Section 7.1.1, regarding a retried ClientHello:
+		// If decryption fails, the client-facing server MUST abort the
+		// handshake with a "decrypt_error" alert.
+		if isRetry {
+			return nil, ErrDecryptError
+		}
 		return nil, errNoMatch
 	}
+
+	// Section 5.1 covers the encoding and decoding of ClientHelloInner.
 	b := cryptobyte.NewBuilder(nil)
 	b.AddUint8(0x01) // msg_type: ClientHello
 	b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
@@ -249,29 +267,25 @@ func (c *Conn) processEncryptedClientHello(h *clientHello) (*clientHello, error)
 		if !s.ReadUint8LengthPrefixed(&want) {
 			return nil, ErrDecodeError
 		}
-		outerPos := 0
+		// Appendix B. Linear-time Outer Extension Processing
+		p := 0
 		for !want.Empty() {
 			var extType uint16
 			if !want.ReadUint16(&extType) {
 				return nil, ErrDecodeError
 			}
-			if extType == 0xfe0d {
+			if extType == 0xfe0d || extType == 0xfd00 {
 				return nil, fmt.Errorf("%w: ech_outer_extensions contains 0x%x", ErrIllegalParameter, extType)
 			}
-			found := false
-			for outerPos < len(h.Extensions) {
-				p := outerPos
-				outerPos++
-				if h.Extensions[p].Type != extType {
-					continue
-				}
-				newExt = append(newExt, h.Extensions[p])
-				found = true
-				break
+			for p < len(h.Extensions) && h.Extensions[p].Type != extType {
+				p++
 			}
-			if !found {
+			if p == len(h.Extensions) {
 				return nil, fmt.Errorf("%w: ech_outer_extensions 0x%x not found", ErrIllegalParameter, extType)
 			}
+			newExt = append(newExt, h.Extensions[p])
+			// Extensions cannot be referenced more than once.
+			p++
 		}
 	}
 	inner.Extensions = newExt
@@ -309,11 +323,6 @@ func (c *Conn) Read(b []byte) (int, error) {
 				c.readErr = err
 				convertErrorsToAlerts(c, err)
 				return 0, err
-			}
-			if inner == nil || inner.echExt == nil || c.inner.ServerName != inner.ServerName || !slices.Equal(c.inner.ALPNProtos, inner.ALPNProtos) {
-				c.readErr = fmt.Errorf("%w: second client_hello mismatch", ErrIllegalParameter)
-				convertErrorsToAlerts(c, c.readErr)
-				return 0, c.readErr
 			}
 			r, c.readErr = inner.Marshal()
 		}
