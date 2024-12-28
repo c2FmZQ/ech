@@ -1,0 +1,38 @@
+name: Tests
+on: 
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-run-tests:
+    name: Build & run tests
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      # https://github.com/actions/checkout/tree/v4.1.1
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+    - name: Get GO version
+      id: goversion
+      run: echo "goversion=$(<.goversion)" > "${GITHUB_OUTPUT}"
+    - name: Set up Go
+      # https://github.com/actions/setup-go/tree/v5.2.0
+      uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a
+      with:
+        go-version: ${{steps.goversion.outputs.goversion}}
+    - name: Build
+      run: go build ./...
+    - name: Run go vet
+      run: go vet ./...
+    - name: Run go fmt
+      run: |
+        out="$(go fmt ./...)"
+        if [[ -n "${out}" ]]; then
+          echo "Need to run `go fmt` on:"
+          echo "${out}"
+          exit 1
+        fi
+    - name: Run go tests
+      run: go test -failfast ./...
