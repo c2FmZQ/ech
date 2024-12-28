@@ -11,6 +11,8 @@ import (
 	"github.com/c2FmZQ/ech/internal/hpke"
 )
 
+// TestConn is an end-to-end test with a go client and a go server where the
+// client has the correct ConfigList.
 func TestConn(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("example.com"))
 	if err != nil {
@@ -97,6 +99,9 @@ func TestConn(t *testing.T) {
 	}
 }
 
+// TestConn is an end-to-end test with a go client and a go server where the
+// client doesn't have the correct ConfigList on the fist attempt, and the
+// retries with RetryConfigList.
 func TestConnRetry(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("example.com"))
 	if err != nil {
@@ -249,6 +254,8 @@ func TestConnRetry(t *testing.T) {
 	})
 }
 
+// TestNoInner verifies that a ClientHello without an ECH extensions works as
+// expected.
 func TestNoInner(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -279,6 +286,8 @@ func TestNoInner(t *testing.T) {
 	}
 }
 
+// TestNoInner verifies that a ECH extensions is ignored when ClientHello
+// offers TLS 1.2.
 func TestTLS12(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -311,6 +320,7 @@ func TestTLS12(t *testing.T) {
 	}
 }
 
+// TestValidInner verifies that a valid ECH extension is correctly handled.
 func TestValidInner(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -340,6 +350,8 @@ func TestValidInner(t *testing.T) {
 	}
 }
 
+// TestCheckPublicName verifies that if the SNI in ClientHelloOuter doesn't
+// match the ECH PublicName, the connection is rejected with illegal parameter.
 func TestCheckPublicName(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -357,6 +369,8 @@ func TestCheckPublicName(t *testing.T) {
 	}
 }
 
+// TestOuterHasECHOuterExt verifies that the ech_outer_extensions is rejected in
+// ClientHelloOuter.
 func TestOuterHasECHOuterExt(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -372,6 +386,8 @@ func TestOuterHasECHOuterExt(t *testing.T) {
 	}
 }
 
+// TestValidRetry verifies that a ClientHello with an ECH extension is properly
+// decrypted/decoded after a HelloRetryRequest.
 func TestValidRetry(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -411,6 +427,8 @@ func TestValidRetry(t *testing.T) {
 	}
 }
 
+// TestRetryChangesServerName verifies that changing he SNI in a retry
+// ClientHelloInner is rejected.
 func TestRetryChangesServerName(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -448,6 +466,8 @@ func TestRetryChangesServerName(t *testing.T) {
 	}
 }
 
+// TestChangeHpkeKeyNotAllowed verifies that changing hpke key in a retry is
+// rejected.
 func TestChangeHpkeKeyNotAllowed(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -485,6 +505,8 @@ func TestChangeHpkeKeyNotAllowed(t *testing.T) {
 	}
 }
 
+// TestRetryChangeConfigNotAllowed verifies that using a different ECHConfig in
+// a retry is rejected.
 func TestRetryChangeConfigNotAllowed(t *testing.T) {
 	privKey1, config1, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -530,6 +552,8 @@ func TestRetryChangeConfigNotAllowed(t *testing.T) {
 	}
 }
 
+// TestRetryDecryptError a decryption error is returned when a retry
+// ClientHelloInner cannot be decrypted.
 func TestRetryDecryptError(t *testing.T) {
 	privKey1, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -577,6 +601,8 @@ func TestRetryDecryptError(t *testing.T) {
 	}
 }
 
+// TestRetryMissingECHExt verifies that a retry ClientHello must have an ECH
+// extension when the first ClientHello had one.
 func TestRetryMissingECHExt(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -613,6 +639,8 @@ func TestRetryMissingECHExt(t *testing.T) {
 	}
 }
 
+// TestOuterWithECHTypeInner verifies that a ECH Type value of inner is rejected
+// when keys are set.
 func TestOuterWithECHTypeInner(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
@@ -626,8 +654,15 @@ func TestOuterWithECHTypeInner(t *testing.T) {
 	if _, err = New(t.Context(), c, WithKeys(keys)); !errors.Is(err, ErrIllegalParameter) {
 		t.Fatalf("New() = %v, want ErrIllegalParameter", err)
 	}
+
+	c = newFakeConn(outer.bytes())
+	if _, err = New(t.Context(), c); err != nil {
+		t.Fatalf("New() = %v, want nil", err)
+	}
 }
 
+// TestInnerTLS12 verifies that a ClientHelloInner that offers only TLS 1.2 is
+// rejected.
 func TestInnerTLS12(t *testing.T) {
 	privKey, config, err := NewConfig(1, []byte("public.example.com"))
 	if err != nil {
