@@ -16,7 +16,7 @@ import (
 
 var _ net.Conn = (*Conn)(nil)
 
-// Option is a argument passed to New.
+// Option is a argument passed to NewConn.
 type Option func(*Conn)
 
 // WithKeys enables the decryption of Encrypted Client Hello messages.
