@@ -27,7 +27,7 @@
 //	        go func() {
 //	                ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 //	                defer cancel()
-//	                conn, err := ech.New(ctx, serverConn, ech.WithKeys(echKeys))
+//	                conn, err := ech.NewConn(ctx, serverConn, ech.WithKeys(echKeys))
 //	                if err != nil {
 //	                        // ...
 //	                        return

@@ -33,21 +33,22 @@ func WithDebug(f func(format string, arg ...any)) Option {
 	}
 }
 
-// New returns a [Conn] that manages Encrypted Client Hello in TLS connections,
-// as defined in https://datatracker.ietf.org/doc/draft-ietf-tls-esni/ .
+// NewConn returns a [Conn] that manages Encrypted Client Hello in TLS
+// connections, as defined in
+// https://datatracker.ietf.org/doc/draft-ietf-tls-esni/ .
 //
 // Encrypted Client Hello handshake messages are decrypted and replaced with the
 // ClientHelloInner transparently. If decryption fails, the HelloClientOuter is
 // used instead.
 //
-// When New() returns, the first ClientHello message has already been
+// When NewConn() returns, the first ClientHello message has already been
 // processed. Conn continues to inspect the other handshake messages for
 // retries. If ClientHello is retried, it will be processed similarly to the
 // first one, with some extra restrictions.
 //
 // The ctx is used while reading the initial ClientHello only. It is not used
 // after New returns.
-func New(ctx context.Context, conn net.Conn, options ...Option) (outConn *Conn, err error) {
+func NewConn(ctx context.Context, conn net.Conn, options ...Option) (outConn *Conn, err error) {
 	defer convertErrorsToAlerts(conn, err)
 	done := make(chan struct{})
 	defer close(done)
