@@ -679,3 +679,59 @@ func TestInnerTLS12(t *testing.T) {
 		t.Fatalf("NewConn: %v, want ErrIllegalParameter", err)
 	}
 }
+
+// TestValidInnerAES256 verifies that a valid ECH extension using AES-256 is
+// correctly handled.
+func TestValidInnerAES256(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey := privKey.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	inner := newClientHello("private", "echExtInner", "tls1.3")
+	outer := newClientHello("public", "tls1.3", "aes-256", config, pubKey, inner)
+	if got, want := outer.echExt.CipherSuite.AEAD, uint16(2); got != want {
+		t.Fatalf("AEAD = %d, want %d", got, want)
+	}
+	c := newFakeConn(outer.bytes())
+
+	conn, err := NewConn(t.Context(), c, WithKeys(keys))
+	if err != nil {
+		t.Fatalf("NewConn: %v", err)
+	}
+	if buf, err := readRecord(conn); err != nil {
+		t.Fatalf("ClientHello: %v", err)
+	} else if got, want := buf, inner.bytes(); !bytes.Equal(got, want) {
+		t.Fatalf("ClientHello = %v, want %v", got, want)
+	}
+}
+
+// TestValidInnerAES128 verifies that a valid ECH extension using AES-128 is
+// correctly handled.
+func TestValidInnerAES128(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey := privKey.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	inner := newClientHello("private", "echExtInner", "tls1.3")
+	outer := newClientHello("public", "tls1.3", "aes-128", config, pubKey, inner)
+	if got, want := outer.echExt.CipherSuite.AEAD, uint16(1); got != want {
+		t.Fatalf("AEAD = %d, want %d", got, want)
+	}
+	c := newFakeConn(outer.bytes())
+
+	conn, err := NewConn(t.Context(), c, WithKeys(keys))
+	if err != nil {
+		t.Fatalf("NewConn: %v", err)
+	}
+	if buf, err := readRecord(conn); err != nil {
+		t.Fatalf("ClientHello: %v", err)
+	} else if got, want := buf, inner.bytes(); !bytes.Equal(got, want) {
+		t.Fatalf("ClientHello = %v, want %v", got, want)
+	}
+}

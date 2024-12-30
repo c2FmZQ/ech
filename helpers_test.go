@@ -103,6 +103,7 @@ func newClientHello(opts ...any) *testClientHello {
 			Extensions:               []extension{},
 		},
 	}
+	aead := uint16(3)
 	var pubKey *ecdh.PublicKey
 	var inner *testClientHello
 	var config Config
@@ -118,6 +119,10 @@ func newClientHello(opts ...any) *testClientHello {
 			h.addClientHelloExtInner()
 		case "ech_outer_extensions":
 			h.addECHOuterExt(nil)
+		case "aes-128":
+			aead = 1
+		case "aes-256":
+			aead = 2
 		default:
 			if c, ok := opt.(Config); ok {
 				config = c
@@ -139,7 +144,7 @@ func newClientHello(opts ...any) *testClientHello {
 		if h.hpkeCtx != nil {
 			encap = []byte{}
 		} else {
-			enc, hpkeCtx, err := hpke.SetupSender(hpke.DHKEM_X25519_HKDF_SHA256, 0x0001, 0x0003, pubKey, info)
+			enc, hpkeCtx, err := hpke.SetupSender(hpke.DHKEM_X25519_HKDF_SHA256, 0x0001, aead, pubKey, info)
 			if err != nil {
 				panic(err)
 			}
@@ -147,7 +152,7 @@ func newClientHello(opts ...any) *testClientHello {
 			encap = enc
 		}
 		innerBytes := inner.bytes()[9:]
-		h.addClientHelloExtOuter(config[4], encap, make([]byte, len(innerBytes)+16))
+		h.addClientHelloExtOuter(config[4], aead, encap, make([]byte, len(innerBytes)+16))
 		h.parse()
 		aad, err := h.marshalAAD()
 		if err != nil {
@@ -158,7 +163,7 @@ func newClientHello(opts ...any) *testClientHello {
 			panic(err)
 		}
 		h.clientHello.Extensions = h.clientHello.Extensions[:len(h.clientHello.Extensions)-1]
-		h.addClientHelloExtOuter(config[4], encap, payload)
+		h.addClientHelloExtOuter(config[4], aead, encap, payload)
 	}
 	h.parse()
 	return h
@@ -225,11 +230,11 @@ func (h *testClientHello) addClientHelloExtInner() {
 	})
 }
 
-func (h *testClientHello) addClientHelloExtOuter(id uint8, encap, payload []byte) {
+func (h *testClientHello) addClientHelloExtOuter(id uint8, aead uint16, encap, payload []byte) {
 	var b cryptobyte.Builder
 	b.AddUint8(0x00)
 	b.AddUint16(0x0001)
-	b.AddUint16(0x0003)
+	b.AddUint16(aead)
 	b.AddUint8(id)
 	b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
 		b.AddBytes(encap)
