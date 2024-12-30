@@ -197,12 +197,12 @@ func (c *Conn) processEncryptedClientHello(h *clientHello, isRetry bool) (*clien
 			continue
 		}
 		if c.hpkeCtx == nil && len(h.echExt.Enc) > 0 {
-			echPriv, err := hpke.ParseHPKEPrivateKey(hpke.DHKEM_X25519_HKDF_SHA256, key.PrivateKey)
+			echPriv, err := hpke.ParseHPKEPrivateKey(cfg.KEM, key.PrivateKey)
 			if err != nil {
 				return nil, err
 			}
 			info := append([]byte("tls ech\x00"), key.Config...)
-			ctx, err := hpke.SetupReceipient(hpke.DHKEM_X25519_HKDF_SHA256, h.echExt.CipherSuite.KDF, h.echExt.CipherSuite.AEAD, echPriv, info, h.echExt.Enc)
+			ctx, err := hpke.SetupReceipient(cfg.KEM, h.echExt.CipherSuite.KDF, h.echExt.CipherSuite.AEAD, echPriv, info, h.echExt.Enc)
 			if err != nil {
 				continue
 			}
