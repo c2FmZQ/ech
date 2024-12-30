@@ -25,8 +25,10 @@ func ConfigList(configs []Config) ([]byte, error) {
 	return b.Bytes()
 }
 
-// NewConfig generates an ECH Config and a private key. It currently supports
-// only DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305.
+// NewConfig generates an ECH Config and a private key. It currently supports:
+//   - DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305.
+//   - DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, AES-256-GCM.
+//   - DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, AES-128-GCM.
 func NewConfig(id uint8, publicName []byte) (*ecdh.PrivateKey, Config, error) {
 	if l := len(publicName); l == 0 || l > 255 {
 		return nil, nil, errors.New("invalid public name length")
@@ -38,12 +40,22 @@ func NewConfig(id uint8, publicName []byte) (*ecdh.PrivateKey, Config, error) {
 	c := ConfigSpec{
 		Version:   0xfe0d,
 		ID:        id,
-		KEM:       0x0020, // DHKEM_X25519_HKDF_SHA256
+		KEM:       0x0020, // DHKEM(X25519, HKDF-SHA256)
 		PublicKey: privKey.PublicKey().Bytes(),
-		CipherSuites: []CipherSuite{{
-			KDF:  0x0001, // KDF_HKDF_SHA256
-			AEAD: 0x0003, // AEAD_ChaCha20Poly1305
-		}},
+		CipherSuites: []CipherSuite{
+			{
+				KDF:  0x0001, // HKDF-SHA256
+				AEAD: 0x0003, // ChaCha20Poly1305
+			},
+			{
+				KDF:  0x0001, // HKDF-SHA256
+				AEAD: 0x0002, // AES-256-GCM
+			},
+			{
+				KDF:  0x0001, // HKDF-SHA256
+				AEAD: 0x0001, // AES-128-GCM
+			},
+		},
 		MinimumNameLength: uint8(min(len(publicName)+16, 255)),
 		PublicName:        publicName,
 	}
