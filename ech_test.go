@@ -679,3 +679,39 @@ func TestInnerTLS12(t *testing.T) {
 		t.Fatalf("NewConn: %v, want ErrIllegalParameter", err)
 	}
 }
+
+// TestValidInnerAES verifies that a valid ECH extension using AES is correctly
+// handled.
+func TestValidInnerAES(t *testing.T) {
+	m := map[string]uint16{
+		"aes-128": 1,
+		"aes-256": 2,
+	}
+	for _, aead := range []string{"aes-128", "aes-256"} {
+		t.Run(aead, func(t *testing.T) {
+			privKey, config, err := NewConfig(1, []byte("public.example.com"))
+			if err != nil {
+				t.Fatalf("NewConfig: %v", err)
+			}
+			pubKey := privKey.PublicKey()
+			keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+			inner := newClientHello("private", "echExtInner", "tls1.3")
+			outer := newClientHello("public", "tls1.3", aead, config, pubKey, inner)
+			if got, want := outer.echExt.CipherSuite.AEAD, m[aead]; got != want {
+				t.Fatalf("AEAD = %d, want %d", got, want)
+			}
+			c := newFakeConn(outer.bytes())
+
+			conn, err := NewConn(t.Context(), c, WithKeys(keys))
+			if err != nil {
+				t.Fatalf("NewConn: %v", err)
+			}
+			if buf, err := readRecord(conn); err != nil {
+				t.Fatalf("ClientHello: %v", err)
+			} else if got, want := buf, inner.bytes(); !bytes.Equal(got, want) {
+				t.Fatalf("ClientHello = %v, want %v", got, want)
+			}
+		})
+	}
+}
