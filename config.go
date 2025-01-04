@@ -111,7 +111,7 @@ func (cfg Config) Spec() (ConfigSpec, error) {
 }
 
 // ConfigSpec represents an ECH Config. It is specified in Section 4 of
-// https://datatracker.ietf.org/doc/draft-ietf-tls-esni/
+// https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/
 type ConfigSpec struct {
 	Version           uint16
 	ID                uint8

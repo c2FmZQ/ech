@@ -26,7 +26,7 @@ type clientHello struct {
 }
 
 // The ECH Extension as specified in Section 5 of
-// https://datatracker.ietf.org/doc/draft-ietf-tls-esni/.
+// https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/.
 type echExt struct {
 	Type        uint8
 	CipherSuite CipherSuite
@@ -330,7 +330,7 @@ func (c *clientHello) parseExtensions() error {
 			c.hasECHOuterExtensions = true
 
 		case 0xfe0d:
-			// https://datatracker.ietf.org/doc/draft-ietf-tls-esni/
+			// https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/
 			// 5.  The "encrypted_client_hello" Extension
 			//
 			// enum {
