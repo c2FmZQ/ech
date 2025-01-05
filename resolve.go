@@ -43,6 +43,11 @@ func Resolve(ctx context.Context, name string) (ResolveResult, error) {
 	result := ResolveResult{
 		Address: a,
 	}
+	aaaa, err := resolveOne(ctx, name, "AAAA")
+	if err != nil {
+		return result, err
+	}
+	result.Address = append(result.Address, aaaa...)
 	raw, err := resolveOne(ctx, name, "HTTPS")
 	if err != nil {
 		return result, err
@@ -72,6 +77,7 @@ var (
 	rrTypes = map[string]int{
 		"A":     1,
 		"CNAME": 5,
+		"AAAA":  28,
 		"HTTPS": 65,
 	}
 	rcode = map[int]string{
