@@ -144,13 +144,13 @@ func resolveOne(ctx context.Context, name, typ string) ([]string, error) {
 		return nil, fmt.Errorf("%s (%s): %s (%d)", name, typ, rcode[rc], rc)
 	}
 	var res []string
-	want := name
+	want := strings.TrimSuffix(name, ".")
 	for _, a := range result.Answer {
 		if a.Name == want && a.Type == rrTypes[typ] {
 			res = append(res, a.Data)
 		}
 		if a.Name == want && a.Type == 5 { // CNAME
-			want = a.Data
+			want = strings.TrimSuffix(a.Data, ".")
 			continue
 		}
 	}
