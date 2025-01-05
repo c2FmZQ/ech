@@ -33,6 +33,33 @@ type HTTPS struct {
 	ECH           []byte
 }
 
+// Addr is a convenience function that returns the first IP address or an empty
+// string.
+func (r ResolveResult) Addr() string {
+	if len(r.Address) > 0 {
+		return r.Address[0]
+	}
+	for _, h := range r.HTTPS {
+		if len(h.IPv4Hint) > 0 {
+			return h.IPv4Hint.String()
+		}
+		if len(h.IPv6Hint) > 0 {
+			return h.IPv6Hint.String()
+		}
+	}
+	return ""
+}
+
+// ECH is a convenience function that returns the first ECH value or nil.
+func (r ResolveResult) ECH() []byte {
+	for _, h := range r.HTTPS {
+		if len(h.ECH) > 0 {
+			return h.ECH
+		}
+	}
+	return nil
+}
+
 // Resolve uses DNS-over-HTTPS to resolve name. It uses Cloudflare's public
 // server 1.1.1.1. https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/
 func Resolve(ctx context.Context, name string) (ResolveResult, error) {
