@@ -1,29 +1,25 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"errors"
 	"flag"
 	"io"
 	"log"
-	"net"
 	"os"
+
+	"github.com/c2FmZQ/ech"
 )
 
 func main() {
-	addr := flag.String("addr", "localhost:8443", "The TCP address of the server.")
+	addr := flag.String("addr", "127.0.0.1:8443", "The TCP address of the server.")
 	serverName := flag.String("server-name", "public.example.com", "The server name to use.")
 	base64ConfigList := flag.String("config-list", "", "The ECH ConfigList to use, base64-encoded.")
 	base64ServerCert := flag.String("server-cert", "", "The server certificate, base64-encoded.")
 	flag.Parse()
 
-	clientConn, err := net.Dial("tcp", *addr)
-	if err != nil {
-		log.Fatalf("net.Dial: %v", err)
-	}
-	log.Printf("Connected to %s", clientConn.RemoteAddr())
 	tlsConfig := &tls.Config{
 		ServerName:         *serverName,
 		InsecureSkipVerify: true,
@@ -48,15 +44,12 @@ func main() {
 		tlsConfig.RootCAs = x509.NewCertPool()
 		tlsConfig.RootCAs.AddCert(cert)
 	}
-	client := tls.Client(clientConn, tlsConfig)
-	defer client.Close()
-	if err := client.Handshake(); err != nil {
-		var echErr *tls.ECHRejectionError
-		if errors.As(err, &echErr) {
-			log.Fatalf("Server has new ECH ConfigList: %s", base64.StdEncoding.EncodeToString(echErr.RetryConfigList))
-		}
-		log.Fatalf("Error: %v", err)
+	client, err := ech.Dial(context.Background(), "tcp", *addr, tlsConfig)
+	if err != nil {
+		log.Fatalf("ech.Dial: %v", err)
 	}
+	defer client.Close()
+	log.Printf("Connected to %s", client.RemoteAddr())
 	log.Printf("ECH Accepted: %v", client.ConnectionState().ECHAccepted)
 
 	if _, err := io.Copy(os.Stdout, client); err != nil {

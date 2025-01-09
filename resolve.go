@@ -2,9 +2,12 @@ package ech
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,8 +19,9 @@ import (
 
 // ResolveResult contains the A and HTTPS records.
 type ResolveResult struct {
-	Address []string
-	HTTPS   []HTTPS
+	A     []string
+	AAAA  []string
+	HTTPS []HTTPS
 }
 
 // HTTPS represents a DNS HTTPS Resource Record.
@@ -33,11 +37,37 @@ type HTTPS struct {
 	ECH           []byte
 }
 
+func (h HTTPS) String() string {
+	s := fmt.Sprintf("%d %s.", h.Priority, h.Target)
+	if len(h.ALPN) > 0 {
+		s += fmt.Sprintf(" alpn=%q", strings.Join(h.ALPN, ","))
+	}
+	if h.NoDefaultALPN {
+		s += " no-default-alpn"
+	}
+	if h.Port > 0 {
+		s += fmt.Sprintf(" port=%d", h.Port)
+	}
+	if len(h.IPv4Hint) > 0 {
+		s += fmt.Sprintf(" ipv4-hint=%s", h.IPv4Hint)
+	}
+	if len(h.IPv6Hint) > 0 {
+		s += fmt.Sprintf(" ipv6-hint=%s", h.IPv6Hint)
+	}
+	if len(h.ECH) > 0 {
+		s += fmt.Sprintf(" ech=%q", base64.StdEncoding.EncodeToString(h.ECH))
+	}
+	return s
+}
+
 // Addr is a convenience function that returns the first IP address or an empty
 // string.
 func (r ResolveResult) Addr() string {
-	if len(r.Address) > 0 {
-		return r.Address[0]
+	if n := len(r.A); n > 0 {
+		return r.A[random(n)]
+	}
+	if n := len(r.AAAA); n > 0 {
+		return r.AAAA[random(n)]
 	}
 	for _, h := range r.HTTPS {
 		if len(h.IPv4Hint) > 0 {
@@ -63,18 +93,25 @@ func (r ResolveResult) ECH() []byte {
 // Resolve uses DNS-over-HTTPS to resolve name. It uses Cloudflare's public
 // server 1.1.1.1. https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/
 func Resolve(ctx context.Context, name string) (ResolveResult, error) {
+	result := ResolveResult{}
+	if ip := net.ParseIP(name); ip != nil {
+		if len(ip) == 4 {
+			result.A = []string{ip.String()}
+		} else {
+			result.AAAA = []string{ip.String()}
+		}
+		return result, nil
+	}
 	a, err := resolveOne(ctx, name, "A")
 	if err != nil {
-		return ResolveResult{}, err
+		return result, err
 	}
-	result := ResolveResult{
-		Address: a,
-	}
+	result.A = a
 	aaaa, err := resolveOne(ctx, name, "AAAA")
 	if err != nil {
 		return result, err
 	}
-	result.Address = append(result.Address, aaaa...)
+	result.AAAA = aaaa
 	raw, err := resolveOne(ctx, name, "HTTPS")
 	if err != nil {
 		return result, err
@@ -231,4 +268,15 @@ func parseHTTPS(v string) (HTTPS, error) {
 		}
 	}
 	return result, nil
+}
+
+func random(n int) int {
+	if n < 2 {
+		return 0
+	}
+	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		panic(err)
+	}
+	return int(v.Int64())
 }
