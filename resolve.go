@@ -94,6 +94,11 @@ func (r ResolveResult) ECH() []byte {
 // server 1.1.1.1. https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/
 func Resolve(ctx context.Context, name string) (ResolveResult, error) {
 	result := ResolveResult{}
+	if name == "localhost" {
+		result.A = []string{"127.0.0.1"}
+		result.AAAA = []string{net.IPv6loopback.String()}
+		return result, nil
+	}
 	if ip := net.ParseIP(name); ip != nil {
 		if len(ip) == 4 {
 			result.A = []string{ip.String()}

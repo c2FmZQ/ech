@@ -23,9 +23,9 @@ jobs:
       with:
         go-version: ${{steps.goversion.outputs.goversion}}
     - name: Build
-      run: go build ./...
+      run: go build ./... && (cd quic && go build ./...)
     - name: Run go vet
-      run: go vet ./...
+      run: go vet ./... && (cd quic && go vet ./...)
     - name: Run go fmt
       run: |
         out="$(go fmt ./...)"
