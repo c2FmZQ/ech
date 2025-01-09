@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", "localhost:8443", "The TCP address to use.")
+	addr := flag.String("addr", "127.0.0.1:8443", "The TCP address to use.")
 	publicName := flag.String("public-name", "public.example.com", "The public name to use.")
 	flag.Parse()
 
