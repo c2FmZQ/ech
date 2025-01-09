@@ -1,4 +1,4 @@
-package ech
+package quic
 
 import (
 	"context"
@@ -6,13 +6,15 @@ import (
 	"errors"
 	"net"
 	"time"
+
+	"github.com/c2FmZQ/ech"
+	"github.com/quic-go/quic-go"
 )
 
-// Dial connects to the given network and address using [net.Dialer] and
-// [tls.Client]. Name resolution is done with [Resolve] and
-// EncryptedClientHelloConfigList will be set automatically if the hostname has
-// a HTTPS DNS record with ech.
-func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn, error) {
+// Dial connects to the given network and address using [quic.DialAddr]. Name
+// resolution is done with [ech.Resolve] and EncryptedClientHelloConfigList will
+// be set automatically if the hostname has a HTTPS DNS record with ech.
+func Dial(ctx context.Context, network, addr string, tc *tls.Config, qc *quic.Config) (quic.Connection, error) {
 	if tc != nil {
 		tc = tc.Clone()
 	} else {
@@ -23,21 +25,21 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 		host = addr
 		port = "443"
 	}
-	result, err := Resolve(ctx, host)
+	result, err := ech.Resolve(ctx, host)
 	if err != nil {
 		return nil, err
 	}
 	var ipv4, ipv6 bool
 	switch network {
-	case "tcp":
+	case "udp":
 		ipv4 = true
 		ipv6 = true
-	case "tcp4":
+	case "udp4":
 		ipv4 = true
-	case "tcp6":
+	case "udp6":
 		ipv6 = true
 	default:
-		return nil, errors.New("network must be one of tcp, tcp4, tcp6")
+		return nil, errors.New("network must be one of udp, udp4, udp6")
 	}
 	var ipaddr []string
 	if ipv4 {
@@ -71,13 +73,6 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 	if tc.EncryptedClientHelloConfigList == nil {
 		tc.EncryptedClientHelloConfigList = result.ECH()
 	}
-	dialer := &net.Dialer{
-		Resolver: &net.Resolver{
-			Dial: func(context.Context, string, string) (net.Conn, error) {
-				return nil, errors.New("cannot use go resolver")
-			},
-		},
-	}
 	var errs []error
 	for _, addr := range ipaddr {
 	retry:
@@ -86,17 +81,11 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 		if len(ipaddr) > 1 {
 			ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 		}
-		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(addr, port))
+		conn, err := quic.DialAddr(ctx, net.JoinHostPort(addr, port), tc, qc)
 		if cancel != nil {
 			cancel()
 		}
 		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		tlsConn := tls.Client(conn, tc)
-		if err := tlsConn.HandshakeContext(ctx); err != nil {
-			conn.Close()
 			var echErr *tls.ECHRejectionError
 			if errors.As(err, &echErr) && len(echErr.RetryConfigList) > 0 {
 				tc.EncryptedClientHelloConfigList = echErr.RetryConfigList
@@ -105,7 +94,7 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 			errs = append(errs, err)
 			continue
 		}
-		return tlsConn, nil
+		return conn, nil
 	}
 	return nil, errors.Join(errs...)
 }
