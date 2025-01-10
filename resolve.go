@@ -187,8 +187,8 @@ var (
 )
 
 func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]string, error) {
-	u := url.URL{Scheme: "https", Host: "1.1.1.1", Path: "/dns-query"}
-	q := u.Query()
+	u := r.baseURL
+	q := make(url.Values)
 	q.Set("name", name)
 	q.Set("type", typ)
 	u.RawQuery = q.Encode()
@@ -215,10 +215,11 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]string, 
 	var res []string
 	want := strings.TrimSuffix(name, ".")
 	for _, a := range result.Answer {
-		if a.Name == want && a.Type == rrTypes[typ] {
+		name := strings.TrimSuffix(a.Name, ".")
+		if name == want && a.Type == rrTypes[typ] {
 			res = append(res, a.Data)
 		}
-		if a.Name == want && a.Type == 5 { // CNAME
+		if name == want && a.Type == 5 { // CNAME
 			want = strings.TrimSuffix(a.Data, ".")
 			continue
 		}
