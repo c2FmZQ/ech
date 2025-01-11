@@ -1,20 +1,18 @@
 package ech
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-
-	"golang.org/x/crypto/cryptobyte"
 )
 
 // ResolveResult contains the A and HTTPS records.
@@ -110,7 +108,7 @@ func CloudflareResolver() *Resolver {
 // https://developers.google.com/speed/public-dns/docs/doh
 func GoogleResolver() *Resolver {
 	return &Resolver{
-		baseURL: url.URL{Scheme: "https", Host: "dns.google", Path: "/resolve"},
+		baseURL: url.URL{Scheme: "https", Host: "dns.google", Path: "/dns-query"},
 	}
 }
 
@@ -139,45 +137,45 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 	if err != nil {
 		return result, err
 	}
-	result.A = a
+	for _, v := range a {
+		result.A = append(result.A, v.(string))
+	}
 	aaaa, err := r.resolveOne(ctx, name, "AAAA")
 	if err != nil {
 		return result, err
 	}
-	result.AAAA = aaaa
-	raw, err := r.resolveOne(ctx, name, "HTTPS")
+	for _, v := range aaaa {
+		result.AAAA = append(result.AAAA, v.(string))
+	}
+	https, err := r.resolveOne(ctx, name, "HTTPS")
 	if err != nil {
 		return result, err
 	}
-	for _, h := range raw {
-		v, err := parseHTTPS(h)
-		if err != nil {
-			return result, err
-		}
-		result.HTTPS = append(result.HTTPS, v)
+	for _, v := range https {
+		result.HTTPS = append(result.HTTPS, v.(HTTPS))
 	}
 	return result, nil
 }
 
 type dohResult struct {
-	Status int    `json:"Status"`
+	Status uint16 `json:"Status"`
 	Error  string `json:"error"`
 	Answer []struct {
 		Name string `json:"name"`
-		Type int    `json:"type"`
+		Type uint16 `json:"type"`
 		TTL  int    `json:"ttl"`
 		Data string `json:"data"`
 	} `json:"Answer"`
 }
 
 var (
-	rrTypes = map[string]int{
+	rrTypes = map[string]uint16{
 		"A":     1,
 		"CNAME": 5,
 		"AAAA":  28,
 		"HTTPS": 65,
 	}
-	rcode = map[int]string{
+	rcode = map[uint8]string{
 		0: "No Error",
 		1: "Format Error",
 		2: "Server Failure",
@@ -187,188 +185,59 @@ var (
 	}
 )
 
-func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]string, error) {
+func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, error) {
+	qq := &dnsMessage{
+		id: 0x0000,
+		rd: 1,
+		question: []dnsQuestion{
+			{
+				name:  name,
+				typ:   rrTypes[typ],
+				class: 1,
+			},
+		},
+	}
 	u := r.baseURL
-	q := make(url.Values)
-	q.Set("name", name)
-	q.Set("type", typ)
-	u.RawQuery = q.Encode()
-	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewReader(qq.bytes()))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("accept", "application/dns-json")
+	req.Header.Set("accept", "application/dns-message")
+	req.Header.Set("content-type", "application/dns-message")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	var result dohResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	sz, err := strconv.Atoi(resp.Header.Get("content-length"))
+	if err != nil || sz < 0 || sz > 4096 {
+		return nil, ErrDecodeError
+	}
+	body := make([]byte, sz)
+	if _, err := io.ReadFull(resp.Body, body); err != nil {
 		return nil, err
 	}
-	if e := result.Error; e != "" {
-		return nil, fmt.Errorf("%s (%s): %v", name, typ, e)
+	result, err := decodeDNSMessage(body)
+	if err != nil {
+		return nil, err
 	}
-	if rc := result.Status; rc != 0 {
+
+	if rc := result.rCode; rc != 0 {
 		return nil, fmt.Errorf("%s (%s): %s (%d)", name, typ, rcode[rc], rc)
 	}
-	var res []string
+	var res []any
 	want := strings.TrimSuffix(name, ".")
-	for _, a := range result.Answer {
-		name := strings.TrimSuffix(a.Name, ".")
-		if name == want && a.Type == rrTypes[typ] {
-			res = append(res, a.Data)
+	for _, a := range result.answer {
+		name := strings.TrimSuffix(a.name, ".")
+		if name == want && a.typ == rrTypes[typ] {
+			res = append(res, a.data)
 		}
-		if name == want && a.Type == 5 { // CNAME
-			want = strings.TrimSuffix(a.Data, ".")
+		if name == want && a.typ == 5 { // CNAME
+			want = strings.TrimSuffix(a.data.(string), ".")
 			continue
 		}
 	}
 	return res, nil
-}
-
-func parseHTTPS(v string) (HTTPS, error) {
-	var result HTTPS
-	if !strings.HasPrefix(v, `\# `) {
-		return parseStructuredHTTPS(v)
-	}
-	v = v[3:]
-	space := strings.Index(v, " ")
-	if space < 0 {
-		return result, ErrDecodeError
-	}
-	length, err := strconv.Atoi(v[:space])
-	if err != nil {
-		return result, err
-	}
-	v = strings.ReplaceAll(v[space:], " ", "")
-	b, err := hex.DecodeString(v)
-	if err != nil {
-		return result, err
-	}
-	if len(b) != length {
-		return result, ErrDecodeError
-	}
-	s := cryptobyte.String(b)
-	var svcPriority uint16
-	if !s.ReadUint16(&svcPriority) {
-		return result, ErrDecodeError
-	}
-	result.Priority = svcPriority
-	var nameParts []string
-	for {
-		var name cryptobyte.String
-		if !s.ReadUint8LengthPrefixed(&name) {
-			return result, ErrDecodeError
-		}
-		if len(name) == 0 {
-			break
-		}
-		nameParts = append(nameParts, string(name))
-	}
-	result.Target = strings.Join(nameParts, ".")
-	for !s.Empty() {
-		var key uint16
-		if !s.ReadUint16(&key) {
-			return result, ErrDecodeError
-		}
-		var value cryptobyte.String
-		if !s.ReadUint16LengthPrefixed(&value) {
-			return result, ErrDecodeError
-		}
-		switch key {
-		case 0: // mandatory keys
-		case 1: // alpn
-			for !value.Empty() {
-				var proto cryptobyte.String
-				if !value.ReadUint8LengthPrefixed(&proto) {
-					return result, ErrDecodeError
-				}
-				result.ALPN = append(result.ALPN, string(proto))
-			}
-		case 2: // no-default-alpn
-			result.NoDefaultALPN = true
-		case 3: // port
-			if !value.ReadUint16(&result.Port) {
-				return result, ErrDecodeError
-			}
-		case 4: // ipv4hint
-			result.IPv4Hint = net.IP(value)
-		case 5: // ECH
-			result.ECH = value
-		case 6: // ipv6hint
-			result.IPv6Hint = net.IP(value)
-		}
-	}
-	return result, nil
-}
-
-func parseStructuredHTTPS(v string) (HTTPS, error) {
-	var result HTTPS
-	token, v := readToken(v)
-	priority, err := strconv.Atoi(token)
-	if err != nil {
-		return result, ErrDecodeError
-	}
-	result.Priority = uint16(priority)
-	token, v = readToken(v)
-	result.Target = strings.TrimSuffix(token, ".")
-	for v != "" {
-		token, v = readToken(v)
-		switch {
-		case strings.HasPrefix(token, "alpn="):
-			result.ALPN = strings.Split(strings.TrimPrefix(token, "alpn="), ",")
-		case token == "no-default-alpn" || strings.HasPrefix(token, "no-default-alpn="):
-			result.NoDefaultALPN = true
-		case strings.HasPrefix(token, "port="):
-			var port int
-			if port, err = strconv.Atoi(strings.TrimPrefix(token, "port=")); err != nil {
-				return result, ErrDecodeError
-			}
-			result.Port = uint16(port)
-		case strings.HasPrefix(token, "ipv4hint="):
-			if result.IPv4Hint = net.ParseIP(strings.TrimPrefix(token, "ipv4hint=")); result.IPv4Hint == nil {
-				return result, ErrDecodeError
-			}
-			result.IPv4Hint = result.IPv4Hint.To4()
-		case strings.HasPrefix(token, "ipv6hint="):
-			if result.IPv6Hint = net.ParseIP(strings.TrimPrefix(token, "ipv6hint=")); result.IPv6Hint == nil {
-				return result, ErrDecodeError
-			}
-			result.IPv6Hint = result.IPv6Hint.To16()
-		case strings.HasPrefix(token, "ech="):
-			if result.ECH, err = base64.StdEncoding.DecodeString(strings.TrimPrefix(token, "ech=")); err != nil {
-				return result, ErrDecodeError
-			}
-		}
-	}
-	return result, nil
-}
-
-func readToken(s string) (string, string) {
-	var token string
-	for {
-		if s == "" {
-			return token, s
-		}
-		if s[0] == ' ' {
-			return token, strings.TrimLeft(s, " ")
-		}
-		if s[0] == '"' {
-			s = s[1:]
-			i := strings.Index(s, `"`)
-			if i < 0 {
-				token += s
-				return token, ""
-			}
-			token += s[:i]
-			s = s[i:]
-			continue
-		}
-		token += string(s[0])
-		s = s[1:]
-	}
 }
 
 func random(n int) int {
