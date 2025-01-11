@@ -60,7 +60,7 @@ func (h HTTPS) String() string {
 	return s
 }
 
-// Addr is a convenience function that returns the first IP address or an empty
+// Addr is a convenience function that returns a random IP address or an empty
 // string.
 func (r ResolveResult) Addr() string {
 	if n := len(r.A); n > 0 {
@@ -90,7 +90,8 @@ func (r ResolveResult) ECH() []byte {
 	return nil
 }
 
-// Resolve uses DNS-over-HTTPS to resolve name. It uses Cloudflare.
+// Resolve uses the default DNS-over-HTTPS resolver (currently cloudflare) to
+// resolve name.
 func Resolve(ctx context.Context, name string) (ResolveResult, error) {
 	return defaultResolver.Resolve(ctx, name)
 }
@@ -229,7 +230,7 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]string, 
 
 func parseHTTPS(v string) (HTTPS, error) {
 	var result HTTPS
-	if !strings.HasPrefix(v, "\\# ") {
+	if !strings.HasPrefix(v, `\# `) {
 		return parseStructuredHTTPS(v)
 	}
 	v = v[3:]
