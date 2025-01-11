@@ -60,7 +60,7 @@ func (h HTTPS) String() string {
 	return s
 }
 
-// Addr is a convenience function that returns the first IP address or an empty
+// Addr is a convenience function that returns a random IP address or an empty
 // string.
 func (r ResolveResult) Addr() string {
 	if n := len(r.A); n > 0 {
@@ -90,9 +90,37 @@ func (r ResolveResult) ECH() []byte {
 	return nil
 }
 
-// Resolve uses DNS-over-HTTPS to resolve name. It uses Cloudflare's public
-// server 1.1.1.1. https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/
+// Resolve uses the default DNS-over-HTTPS resolver (currently cloudflare) to
+// resolve name.
 func Resolve(ctx context.Context, name string) (ResolveResult, error) {
+	return defaultResolver.Resolve(ctx, name)
+}
+
+var defaultResolver = CloudflareResolver()
+
+// CloudflareResolver uses Cloudflare's DNS-over-HTTPS service.
+// https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/
+func CloudflareResolver() *Resolver {
+	return &Resolver{
+		baseURL: url.URL{Scheme: "https", Host: "1.1.1.1", Path: "/dns-query"},
+	}
+}
+
+// GoogleResolver uses Google's DNS-over-HTTPS service.
+// https://developers.google.com/speed/public-dns/docs/doh
+func GoogleResolver() *Resolver {
+	return &Resolver{
+		baseURL: url.URL{Scheme: "https", Host: "dns.google", Path: "/resolve"},
+	}
+}
+
+// Resolver is a DNS-over-HTTPS client.
+type Resolver struct {
+	baseURL url.URL
+}
+
+// Resolve uses DNS-over-HTTPS to resolve name.
+func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, error) {
 	result := ResolveResult{}
 	if name == "localhost" {
 		result.A = []string{"127.0.0.1"}
@@ -107,17 +135,17 @@ func Resolve(ctx context.Context, name string) (ResolveResult, error) {
 		}
 		return result, nil
 	}
-	a, err := resolveOne(ctx, name, "A")
+	a, err := r.resolveOne(ctx, name, "A")
 	if err != nil {
 		return result, err
 	}
 	result.A = a
-	aaaa, err := resolveOne(ctx, name, "AAAA")
+	aaaa, err := r.resolveOne(ctx, name, "AAAA")
 	if err != nil {
 		return result, err
 	}
 	result.AAAA = aaaa
-	raw, err := resolveOne(ctx, name, "HTTPS")
+	raw, err := r.resolveOne(ctx, name, "HTTPS")
 	if err != nil {
 		return result, err
 	}
@@ -159,9 +187,9 @@ var (
 	}
 )
 
-func resolveOne(ctx context.Context, name, typ string) ([]string, error) {
-	u := url.URL{Scheme: "https", Host: "1.1.1.1", Path: "/dns-query"}
-	q := u.Query()
+func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]string, error) {
+	u := r.baseURL
+	q := make(url.Values)
 	q.Set("name", name)
 	q.Set("type", typ)
 	u.RawQuery = q.Encode()
@@ -188,10 +216,11 @@ func resolveOne(ctx context.Context, name, typ string) ([]string, error) {
 	var res []string
 	want := strings.TrimSuffix(name, ".")
 	for _, a := range result.Answer {
-		if a.Name == want && a.Type == rrTypes[typ] {
+		name := strings.TrimSuffix(a.Name, ".")
+		if name == want && a.Type == rrTypes[typ] {
 			res = append(res, a.Data)
 		}
-		if a.Name == want && a.Type == 5 { // CNAME
+		if name == want && a.Type == 5 { // CNAME
 			want = strings.TrimSuffix(a.Data, ".")
 			continue
 		}
@@ -201,8 +230,8 @@ func resolveOne(ctx context.Context, name, typ string) ([]string, error) {
 
 func parseHTTPS(v string) (HTTPS, error) {
 	var result HTTPS
-	if !strings.HasPrefix(v, "\\# ") {
-		return result, ErrDecodeError
+	if !strings.HasPrefix(v, `\# `) {
+		return parseStructuredHTTPS(v)
 	}
 	v = v[3:]
 	space := strings.Index(v, " ")
@@ -273,6 +302,73 @@ func parseHTTPS(v string) (HTTPS, error) {
 		}
 	}
 	return result, nil
+}
+
+func parseStructuredHTTPS(v string) (HTTPS, error) {
+	var result HTTPS
+	token, v := readToken(v)
+	priority, err := strconv.Atoi(token)
+	if err != nil {
+		return result, ErrDecodeError
+	}
+	result.Priority = uint16(priority)
+	token, v = readToken(v)
+	result.Target = strings.TrimSuffix(token, ".")
+	for v != "" {
+		token, v = readToken(v)
+		switch {
+		case strings.HasPrefix(token, "alpn="):
+			result.ALPN = strings.Split(strings.TrimPrefix(token, "alpn="), ",")
+		case token == "no-default-alpn" || strings.HasPrefix(token, "no-default-alpn="):
+			result.NoDefaultALPN = true
+		case strings.HasPrefix(token, "port="):
+			var port int
+			if port, err = strconv.Atoi(strings.TrimPrefix(token, "port=")); err != nil {
+				return result, ErrDecodeError
+			}
+			result.Port = uint16(port)
+		case strings.HasPrefix(token, "ipv4hint="):
+			if result.IPv4Hint = net.ParseIP(strings.TrimPrefix(token, "ipv4hint=")); result.IPv4Hint == nil {
+				return result, ErrDecodeError
+			}
+			result.IPv4Hint = result.IPv4Hint.To4()
+		case strings.HasPrefix(token, "ipv6hint="):
+			if result.IPv6Hint = net.ParseIP(strings.TrimPrefix(token, "ipv6hint=")); result.IPv6Hint == nil {
+				return result, ErrDecodeError
+			}
+			result.IPv6Hint = result.IPv6Hint.To16()
+		case strings.HasPrefix(token, "ech="):
+			if result.ECH, err = base64.StdEncoding.DecodeString(strings.TrimPrefix(token, "ech=")); err != nil {
+				return result, ErrDecodeError
+			}
+		}
+	}
+	return result, nil
+}
+
+func readToken(s string) (string, string) {
+	var token string
+	for {
+		if s == "" {
+			return token, s
+		}
+		if s[0] == ' ' {
+			return token, strings.TrimLeft(s, " ")
+		}
+		if s[0] == '"' {
+			s = s[1:]
+			i := strings.Index(s, `"`)
+			if i < 0 {
+				token += s
+				return token, ""
+			}
+			token += s[:i]
+			s = s[i:]
+			continue
+		}
+		token += string(s[0])
+		s = s[1:]
+	}
 }
 
 func random(n int) int {
