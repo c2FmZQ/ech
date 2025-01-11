@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -112,6 +113,31 @@ func GoogleResolver() *Resolver {
 	}
 }
 
+// WikimediaResolver uses Wikimedia's DNS-over-HTTPS service.
+// https://meta.wikimedia.org/wiki/Wikimedia_DNS
+func WikimediaResolver() *Resolver {
+	return &Resolver{
+		baseURL: url.URL{Scheme: "https", Host: "wikimedia-dns.org", Path: "/dns-query"},
+	}
+}
+
+// NewResolver returns a resolver that uses any RFC 8484 compliant
+// DNS-over-HTTPS service.
+// See https://github.com/curl/curl/wiki/DNS-over-HTTPS#publicly-available-servers
+// for a list of publicly available servers.
+func NewResolver(URL string) (*Resolver, error) {
+	u, err := url.Parse(URL)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme != "https" {
+		return nil, errors.New("service url must use https")
+	}
+	return &Resolver{
+		baseURL: *u,
+	}, nil
+}
+
 // Resolver is a DNS-over-HTTPS client.
 type Resolver struct {
 	baseURL url.URL
@@ -209,8 +235,11 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("status code %d", resp.StatusCode)
+	}
 	sz, err := strconv.Atoi(resp.Header.Get("content-length"))
-	if err != nil || sz < 0 || sz > 4096 {
+	if err != nil || sz < 0 || sz > 65535 {
 		return nil, ErrDecodeError
 	}
 	body := make([]byte, sz)

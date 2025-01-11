@@ -8,6 +8,7 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 )
 
+// https://datatracker.ietf.org/doc/html/rfc1035
 type dnsMessage struct {
 	id     uint16
 	qr     uint8
