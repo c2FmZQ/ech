@@ -330,10 +330,12 @@ func parseStructuredHTTPS(v string) (HTTPS, error) {
 			if result.IPv4Hint = net.ParseIP(strings.TrimPrefix(token, "ipv4hint=")); result.IPv4Hint == nil {
 				return result, ErrDecodeError
 			}
+			result.IPv4Hint = result.IPv4Hint.To4()
 		case strings.HasPrefix(token, "ipv6hint="):
 			if result.IPv6Hint = net.ParseIP(strings.TrimPrefix(token, "ipv6hint=")); result.IPv6Hint == nil {
 				return result, ErrDecodeError
 			}
+			result.IPv6Hint = result.IPv6Hint.To16()
 		case strings.HasPrefix(token, "ech="):
 			if result.ECH, err = base64.StdEncoding.DecodeString(strings.TrimPrefix(token, "ech=")); err != nil {
 				return result, ErrDecodeError
