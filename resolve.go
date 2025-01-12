@@ -183,17 +183,6 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 	return result, nil
 }
 
-type dohResult struct {
-	Status uint16 `json:"Status"`
-	Error  string `json:"error"`
-	Answer []struct {
-		Name string `json:"name"`
-		Type uint16 `json:"type"`
-		TTL  int    `json:"ttl"`
-		Data string `json:"data"`
-	} `json:"Answer"`
-}
-
 var (
 	rrTypes = map[string]uint16{
 		"A":     1,
