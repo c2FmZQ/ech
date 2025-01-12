@@ -146,26 +146,26 @@ func (d dnsDecoder) decode() (dnsMessage, error) {
 }
 
 func (d dnsDecoder) name(s *cryptobyte.String) (string, error) {
-	parts, err := d.nameParts(s)
+	labels, err := d.nameLabels(s)
 	if err != nil {
 		return "", err
 	}
-	return strings.Join(parts, "."), nil
+	return strings.Join(labels, "."), nil
 }
 
-func (d dnsDecoder) nameParts(s *cryptobyte.String) ([]string, error) {
-	var parts []string
+func (d dnsDecoder) nameLabels(s *cryptobyte.String) ([]string, error) {
+	var labels []string
 	for {
-		if !s.Empty() && (*s)[0]&0xc0 == 0xc0 {
-			var off uint16
-			if !s.ReadUint16(&off) {
+		for !s.Empty() && (*s)[0]&0xc0 == 0xc0 { // pointer
+			var offset uint16
+			if !s.ReadUint16(&offset) {
 				return nil, ErrDecodeError
 			}
-			off &= 0x3fff
-			if int(off) > len(d.raw) || uintptr(unsafe.Pointer(&d.raw[off])) >= uintptr(unsafe.Pointer(&(*s)[0])) {
+			offset &= 0x3fff
+			if int(offset) > len(d.raw) || uintptr(unsafe.Pointer(&d.raw[offset])) >= uintptr(unsafe.Pointer(&(*s)[0])) {
 				return nil, ErrDecodeError
 			}
-			ss := cryptobyte.String(d.raw[off:])
+			ss := cryptobyte.String(d.raw[offset:])
 			s = &ss
 		}
 		var name cryptobyte.String
@@ -175,9 +175,9 @@ func (d dnsDecoder) nameParts(s *cryptobyte.String) ([]string, error) {
 		if len(name) == 0 {
 			break
 		}
-		parts = append(parts, string(name))
+		labels = append(labels, string(name))
 	}
-	return parts, nil
+	return labels, nil
 }
 
 func (d dnsDecoder) rr(s *cryptobyte.String) (dnsRR, error) {
