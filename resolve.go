@@ -190,13 +190,18 @@ var (
 		"AAAA":  28,
 		"HTTPS": 65,
 	}
-	rcode = map[uint8]string{
-		0: "No Error",
-		1: "Format Error",
-		2: "Server Failure",
-		3: "Non-Existent Domain",
-		4: "Not Implemented",
-		5: "Query Refused",
+	ErrFormatError       = errors.New("format error")
+	ErrServerFailure     = errors.New("server failure")
+	ErrNonExistentDomain = errors.New("non-existent domain")
+	ErrNotImplemented    = errors.New("not implemented")
+	ErrQueryRefused      = errors.New("query refused")
+
+	rcode = map[uint8]error{
+		1: ErrFormatError,
+		2: ErrServerFailure,
+		3: ErrNonExistentDomain,
+		4: ErrNotImplemented,
+		5: ErrQueryRefused,
 	}
 )
 
@@ -241,7 +246,10 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 	}
 
 	if rc := result.rCode; rc != 0 {
-		return nil, fmt.Errorf("%s (%s): %s (%d)", name, typ, rcode[rc], rc)
+		if err := rcode[rc]; err != nil {
+			return nil, fmt.Errorf("%s (%s): %w (%d)", name, typ, rcode[rc], rc)
+		}
+		return nil, fmt.Errorf("%s (%s): response code %d", name, typ, rc)
 	}
 	var res []any
 	want := strings.TrimSuffix(name, ".")
