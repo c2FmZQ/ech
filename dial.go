@@ -39,14 +39,14 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 	default:
 		return nil, errors.New("network must be one of tcp, tcp4, tcp6")
 	}
-	var ipaddr []string
+	var ipaddr []net.IP
 	if ipv4 {
 		if n := len(result.A); n > 0 {
 			ipaddr = append(ipaddr, result.A...)
 		} else {
 			for _, h := range result.HTTPS {
 				if len(h.IPv4Hint) > 0 {
-					ipaddr = append(ipaddr, h.IPv4Hint.String())
+					ipaddr = append(ipaddr, h.IPv4Hint)
 				}
 			}
 		}
@@ -57,7 +57,7 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 		} else {
 			for _, h := range result.HTTPS {
 				if len(h.IPv6Hint) > 0 {
-					ipaddr = append(ipaddr, h.IPv6Hint.String())
+					ipaddr = append(ipaddr, h.IPv6Hint)
 				}
 			}
 		}
@@ -86,7 +86,7 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 		if len(ipaddr) > 1 {
 			ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 		}
-		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(addr, port))
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(addr.String(), port))
 		if cancel != nil {
 			cancel()
 		}

@@ -1,72 +1,33 @@
 package ech
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"math/big"
 	"net"
-	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
+
+	"github.com/c2FmZQ/ech/dns"
 )
 
 // ResolveResult contains the A and HTTPS records.
 type ResolveResult struct {
-	A     []string
-	AAAA  []string
-	HTTPS []HTTPS
-}
-
-// HTTPS represents a DNS HTTPS Resource Record.
-// https://www.rfc-editor.org/rfc/rfc9460
-type HTTPS struct {
-	Priority      uint16
-	Target        string
-	ALPN          []string
-	NoDefaultALPN bool
-	Port          uint16
-	IPv4Hint      net.IP
-	IPv6Hint      net.IP
-	ECH           []byte
-}
-
-func (h HTTPS) String() string {
-	s := fmt.Sprintf("%d %s.", h.Priority, h.Target)
-	if len(h.ALPN) > 0 {
-		s += fmt.Sprintf(" alpn=%q", strings.Join(h.ALPN, ","))
-	}
-	if h.NoDefaultALPN {
-		s += " no-default-alpn"
-	}
-	if h.Port > 0 {
-		s += fmt.Sprintf(" port=%d", h.Port)
-	}
-	if len(h.IPv4Hint) > 0 {
-		s += fmt.Sprintf(" ipv4-hint=%s", h.IPv4Hint)
-	}
-	if len(h.IPv6Hint) > 0 {
-		s += fmt.Sprintf(" ipv6-hint=%s", h.IPv6Hint)
-	}
-	if len(h.ECH) > 0 {
-		s += fmt.Sprintf(" ech=%q", base64.StdEncoding.EncodeToString(h.ECH))
-	}
-	return s
+	A     []net.IP
+	AAAA  []net.IP
+	HTTPS []dns.HTTPS
 }
 
 // Addr is a convenience function that returns a random IP address or an empty
 // string.
 func (r ResolveResult) Addr() string {
 	if n := len(r.A); n > 0 {
-		return r.A[random(n)]
+		return r.A[random(n)].String()
 	}
 	if n := len(r.AAAA); n > 0 {
-		return r.AAAA[random(n)]
+		return r.AAAA[random(n)].String()
 	}
 	for _, h := range r.HTTPS {
 		if len(h.IPv4Hint) > 0 {
@@ -147,15 +108,15 @@ type Resolver struct {
 func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, error) {
 	result := ResolveResult{}
 	if name == "localhost" {
-		result.A = []string{"127.0.0.1"}
-		result.AAAA = []string{net.IPv6loopback.String()}
+		result.A = []net.IP{net.IP{127, 0, 0, 1}}
+		result.AAAA = []net.IP{net.IPv6loopback}
 		return result, nil
 	}
 	if ip := net.ParseIP(name); ip != nil {
 		if len(ip) == 4 {
-			result.A = []string{ip.String()}
+			result.A = []net.IP{ip.To4()}
 		} else {
-			result.AAAA = []string{ip.String()}
+			result.AAAA = []net.IP{ip}
 		}
 		return result, nil
 	}
@@ -164,21 +125,21 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 		return result, err
 	}
 	for _, v := range a {
-		result.A = append(result.A, v.(string))
+		result.A = append(result.A, v.(net.IP))
 	}
 	aaaa, err := r.resolveOne(ctx, name, "AAAA")
 	if err != nil {
 		return result, err
 	}
 	for _, v := range aaaa {
-		result.AAAA = append(result.AAAA, v.(string))
+		result.AAAA = append(result.AAAA, v.(net.IP))
 	}
 	https, err := r.resolveOne(ctx, name, "HTTPS")
 	if err != nil {
 		return result, err
 	}
 	for _, v := range https {
-		result.HTTPS = append(result.HTTPS, v.(HTTPS))
+		result.HTTPS = append(result.HTTPS, v.(dns.HTTPS))
 	}
 	return result, nil
 }
@@ -206,46 +167,22 @@ var (
 )
 
 func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, error) {
-	qq := &dnsMessage{
-		id: 0x0000,
-		rd: 1,
-		question: []dnsQuestion{
-			{
-				name:  name,
-				typ:   rrTypes[typ],
-				class: 1,
-			},
-		},
+	qq := &dns.Message{
+		ID: 0x0000,
+		RD: 1,
+		Question: []dns.Question{{
+			Name:  name,
+			Type:  rrTypes[typ],
+			Class: 1,
+		}},
 	}
-	u := r.baseURL
-	req, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewReader(qq.bytes()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("accept", "application/dns-message")
-	req.Header.Set("content-type", "application/dns-message")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("status code %d", resp.StatusCode)
-	}
-	sz, err := strconv.Atoi(resp.Header.Get("content-length"))
-	if err != nil || sz < 0 || sz > 65535 {
-		return nil, ErrDecodeError
-	}
-	body := make([]byte, sz)
-	if _, err := io.ReadFull(resp.Body, body); err != nil {
-		return nil, err
-	}
-	result, err := decodeDNSMessage(body)
+
+	result, err := dns.DoH(ctx, qq, r.baseURL.String())
 	if err != nil {
 		return nil, err
 	}
 
-	if rc := result.rCode; rc != 0 {
+	if rc := result.RCode; rc != 0 {
 		if err := rcode[rc]; err != nil {
 			return nil, fmt.Errorf("%s (%s): %w (%d)", name, typ, rcode[rc], rc)
 		}
@@ -253,13 +190,13 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 	}
 	var res []any
 	want := strings.TrimSuffix(name, ".")
-	for _, a := range result.answer {
-		name := strings.TrimSuffix(a.name, ".")
-		if name == want && a.typ == rrTypes[typ] {
-			res = append(res, a.data)
+	for _, a := range result.Answer {
+		name := strings.TrimSuffix(a.Name, ".")
+		if name == want && a.Type == rrTypes[typ] {
+			res = append(res, a.Data)
 		}
-		if name == want && a.typ == 5 { // CNAME
-			want = strings.TrimSuffix(a.data.(string), ".")
+		if name == want && a.Type == 5 { // CNAME
+			want = strings.TrimSuffix(a.Data.(string), ".")
 			continue
 		}
 	}
