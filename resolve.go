@@ -121,6 +121,14 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 		}
 		return result, nil
 	}
+	if len(name) > 255 {
+		return result, ErrInvalidName
+	}
+	for _, p := range strings.Split(name, ".") {
+		if len(p) > 63 {
+			return result, ErrInvalidName
+		}
+	}
 	want := name
 	seen := make(map[string]bool)
 alias:
@@ -168,6 +176,8 @@ alias:
 }
 
 var (
+	ErrInvalidName = errors.New("invalid name")
+
 	ErrFormatError       = errors.New("format error")
 	ErrServerFailure     = errors.New("server failure")
 	ErrNonExistentDomain = errors.New("non-existent domain")
