@@ -24,7 +24,7 @@ func main() {
 	if iType == 0 {
 		v, err := strconv.Atoi(typ)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%q: %v", typ, err)
+			fmt.Fprintf(os.Stderr, "%q: %v\n", typ, err)
 			os.Exit(1)
 		}
 		iType = uint16(v)

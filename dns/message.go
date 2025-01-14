@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"strings"
 	"unsafe"
@@ -130,6 +131,67 @@ type SOA struct {
 	Minimum uint32 `json:"minimum"`
 }
 
+// CAA represents a CAA Resource Record.
+type CAA struct {
+	Flags uint8  `json:"flags"`
+	Tag   string `json:"tag"`
+	Value string `json:"value"`
+}
+
+// CERT represents a CERT Resource Record.
+type CERT struct {
+	Type        uint16 `json:"type"`
+	KeyTag      uint16 `json:"keytag"`
+	Algorithm   uint8  `json:"algorithm"`
+	Certificate []byte `json:"certificate"`
+}
+
+// DNSKEY represents a DNSKEY Resource Record.
+type DNSKEY struct {
+	Flags     uint16 `json:"flags"`
+	Protocol  uint8  `json:"protocol"`
+	Algorithm uint8  `json:"algorithm"`
+	PublicKey []byte `json:"publickey"`
+}
+
+// DS represents a DS Resource Record.
+type DS struct {
+	KeyTag     uint16 `json:"keytag"`
+	Algorithm  uint8  `json:"algorithm"`
+	DigestType uint8  `json:"digesttype"`
+	Digest     []byte `json:"digest"`
+}
+
+// RRSIG represents a RRSIG Resource Record.
+type RRSIG struct {
+	TypeCovered         uint16 `json:"typecovered"`
+	Algorithm           uint8  `json:"algorithm"`
+	Labels              uint8  `json:"labels"`
+	OriginalTTL         uint32 `json:"originalttl"`
+	SignatureExpiration uint32 `json:"signatureexpiration"`
+	SignatureInception  uint32 `json:"signatureinception"`
+	KeyTag              uint16 `json:"keytag"`
+	SignerName          string `json:"signername"`
+	Signature           []byte `json:"signature"`
+}
+
+// NSEC represents a NSEC Resource Record.
+type NSEC struct {
+	NextDomainName string `json:"nextdomainname"`
+	TypeBitMaps    []byte `json:"typebitmaps"`
+}
+
+// LOC represents a LOC Resource Record. RFC 1876
+type LOC struct {
+	Version   uint8   `json:"version"`
+	Size      float64 `json:"size"`      // meters
+	HorizPre  float64 `json:"horizpre"`  // meters
+	VertPre   float64 `json:"vertpre"`   // meters
+	Latitude  float64 `json:"latitude"`  // degrees
+	Longitude float64 `json:"longitude"` // degrees
+	Altitude  float64 `json:"altitude"`  // meters above reference altitude
+}
+
 // SRV represents a SRV Resource Record.
 type SRV struct {
 	Priority uint16 `json:"priority"`
@@ -160,6 +222,13 @@ type HTTPS struct {
 	IPv4Hint      net.IP   `json:"ipv4hint,omitempty"`
 	IPv6Hint      net.IP   `json:"ipv6hint,omitempty"`
 	ECH           []byte   `json:"ech,omitempty"`
+}
+
+// URI represents a URI Resource Record. RFC 7553
+type URI struct {
+	Priority uint16 `json:"priority"`
+	Weight   uint16 `json:"weight"`
+	Target   string `json:"target"`
 }
 
 // Bytes returns the serialized message. It includes only the header and the
@@ -366,8 +435,44 @@ func (d decoder) rr(s *cryptobyte.String) (RR, error) {
 			return rr, ErrDecodeError
 		}
 		rr.Data = v
+	case 29: // LOC
+		v, err := d.loc(data)
+		if err != nil {
+			return rr, err
+		}
+		rr.Data = v
 	case 33: // SRV
 		v, err := d.srv(data)
+		if err != nil {
+			return rr, err
+		}
+		rr.Data = v
+	case 37: // CERT
+		v, err := d.cert(data)
+		if err != nil {
+			return rr, err
+		}
+		rr.Data = v
+	case 43: // DS
+		v, err := d.ds(data)
+		if err != nil {
+			return rr, err
+		}
+		rr.Data = v
+	case 46: // RRSIG
+		v, err := d.rrsig(data)
+		if err != nil {
+			return rr, err
+		}
+		rr.Data = v
+	case 47: // NSEC
+		v, err := d.nsec(data)
+		if err != nil {
+			return rr, err
+		}
+		rr.Data = v
+	case 48: // DNSKEY
+		v, err := d.dnskey(data)
 		if err != nil {
 			return rr, err
 		}
@@ -380,6 +485,18 @@ func (d decoder) rr(s *cryptobyte.String) (RR, error) {
 		rr.Data = v
 	case 65: // HTTPS
 		v, err := d.https(data)
+		if err != nil {
+			return rr, err
+		}
+		rr.Data = v
+	case 256: // URI
+		v, err := d.uri(data)
+		if err != nil {
+			return rr, err
+		}
+		rr.Data = v
+	case 257: // CAA
+		v, err := d.caa(data)
 		if err != nil {
 			return rr, err
 		}
@@ -430,6 +547,47 @@ func (d decoder) soa(s *cryptobyte.String) (SOA, error) {
 	if !s.ReadUint32(&result.Minimum) {
 		return result, ErrDecodeError
 	}
+	return result, nil
+}
+
+func (d decoder) loc(b []byte) (LOC, error) {
+	var result LOC
+	s := cryptobyte.String(b)
+	if !s.ReadUint8(&result.Version) {
+		return result, ErrDecodeError
+	}
+	var p uint8
+	prec := func(v uint8) float64 {
+		m := float64(v & 0xf0 >> 4)
+		e := int(v & 0x0f)
+		return m * math.Pow10(e) / 100
+	}
+	if !s.ReadUint8(&p) {
+		return result, ErrDecodeError
+	}
+	result.Size = prec(p)
+	if !s.ReadUint8(&p) {
+		return result, ErrDecodeError
+	}
+	result.HorizPre = prec(p)
+	if !s.ReadUint8(&p) {
+		return result, ErrDecodeError
+	}
+	result.VertPre = prec(p)
+
+	var v uint32
+	if !s.ReadUint32(&v) {
+		return result, ErrDecodeError
+	}
+	result.Latitude = float64(int64(v)-0x80000000) / 3600000
+	if !s.ReadUint32(&v) {
+		return result, ErrDecodeError
+	}
+	result.Longitude = float64(int64(v)-0x80000000) / 3600000
+	if !s.ReadUint32(&v) {
+		return result, ErrDecodeError
+	}
+	result.Altitude = float64(int64(v)-10000000) / 100
 	return result, nil
 }
 
@@ -548,4 +706,125 @@ func (h HTTPS) String() string {
 		s += fmt.Sprintf(" ech=%q", base64.StdEncoding.EncodeToString(h.ECH))
 	}
 	return s
+}
+
+func (d decoder) cert(b []byte) (CERT, error) {
+	var result CERT
+	s := cryptobyte.String(b)
+	if !s.ReadUint16(&result.Type) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint16(&result.KeyTag) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint8(&result.Algorithm) {
+		return result, ErrDecodeError
+	}
+	result.Certificate = s
+	return result, nil
+}
+
+func (d decoder) ds(b []byte) (DS, error) {
+	var result DS
+	s := cryptobyte.String(b)
+	if !s.ReadUint16(&result.KeyTag) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint8(&result.Algorithm) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint8(&result.DigestType) {
+		return result, ErrDecodeError
+	}
+	result.Digest = s
+	return result, nil
+}
+
+func (d decoder) dnskey(b []byte) (DNSKEY, error) {
+	var result DNSKEY
+	s := cryptobyte.String(b)
+	if !s.ReadUint16(&result.Flags) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint8(&result.Protocol) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint8(&result.Algorithm) {
+		return result, ErrDecodeError
+	}
+	result.PublicKey = s
+	return result, nil
+}
+
+func (d decoder) nsec(b []byte) (NSEC, error) {
+	var result NSEC
+	s := cryptobyte.String(b)
+	name, err := d.name(&s)
+	if err != nil {
+		return result, err
+	}
+	result.NextDomainName = name
+	result.TypeBitMaps = s
+	return result, nil
+}
+
+func (d decoder) rrsig(b []byte) (RRSIG, error) {
+	var result RRSIG
+	s := cryptobyte.String(b)
+	if !s.ReadUint16(&result.TypeCovered) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint8(&result.Algorithm) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint8(&result.Labels) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint32(&result.OriginalTTL) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint32(&result.SignatureExpiration) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint32(&result.SignatureInception) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint16(&result.KeyTag) {
+		return result, ErrDecodeError
+	}
+	name, err := d.name(&s)
+	if err != nil {
+		return result, err
+	}
+	result.SignerName = name
+	result.Signature = s
+	return result, nil
+}
+
+func (d decoder) uri(b []byte) (URI, error) {
+	var result URI
+	s := cryptobyte.String(b)
+	if !s.ReadUint16(&result.Priority) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint16(&result.Weight) {
+		return result, ErrDecodeError
+	}
+	result.Target = string(s)
+	return result, nil
+}
+
+func (d decoder) caa(b []byte) (CAA, error) {
+	var result CAA
+	s := cryptobyte.String(b)
+	if !s.ReadUint8(&result.Flags) {
+		return result, ErrDecodeError
+	}
+	var v cryptobyte.String
+	if !s.ReadUint8LengthPrefixed(&v) {
+		return result, ErrDecodeError
+	}
+	result.Tag = string(v)
+	result.Value = string(s)
+	return result, nil
 }
