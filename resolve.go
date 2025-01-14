@@ -157,6 +157,7 @@ alias:
 			}
 			result.HTTPS = append(result.HTTPS, v.(dns.HTTPS))
 		}
+		break
 	}
 	a, err := r.resolveOne(ctx, want, "A")
 	if err != nil {
