@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"net"
 	"net/url"
@@ -120,26 +121,48 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 		}
 		return result, nil
 	}
-	a, err := r.resolveOne(ctx, name, "A")
+	want := name
+	seen := make(map[string]bool)
+alias:
+	for {
+		if seen[want] {
+			log.Printf("ERR Resolve(%q): alias loop detected", name)
+			want = name
+			break
+		}
+		seen[want] = true
+		if len(seen) >= 5 {
+			log.Printf("ERR Resolve(%q): alias chain too long", name)
+			want = name
+			break
+		}
+		https, err := r.resolveOne(ctx, want, "HTTPS")
+		if err != nil {
+			return result, err
+		}
+		for _, v := range https {
+			// Follow aliases. RFC 9460 2.4.2
+			if target := v.(dns.HTTPS).Target; target != "" {
+				want = target
+				result.HTTPS = nil
+				continue alias
+			}
+			result.HTTPS = append(result.HTTPS, v.(dns.HTTPS))
+		}
+	}
+	a, err := r.resolveOne(ctx, want, "A")
 	if err != nil {
 		return result, err
 	}
 	for _, v := range a {
 		result.A = append(result.A, v.(net.IP))
 	}
-	aaaa, err := r.resolveOne(ctx, name, "AAAA")
+	aaaa, err := r.resolveOne(ctx, want, "AAAA")
 	if err != nil {
 		return result, err
 	}
 	for _, v := range aaaa {
 		result.AAAA = append(result.AAAA, v.(net.IP))
-	}
-	https, err := r.resolveOne(ctx, name, "HTTPS")
-	if err != nil {
-		return result, err
-	}
-	for _, v := range https {
-		result.HTTPS = append(result.HTTPS, v.(dns.HTTPS))
 	}
 	return result, nil
 }
