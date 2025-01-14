@@ -113,10 +113,10 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 		return result, nil
 	}
 	if ip := net.ParseIP(name); ip != nil {
-		if len(ip) == 4 {
-			result.A = []net.IP{ip.To4()}
-		} else {
-			result.AAAA = []net.IP{ip}
+		if ipv4 := ip.To4(); ipv4 != nil {
+			result.A = []net.IP{ipv4}
+		} else if ipv6 := ip.To16(); ipv6 != nil {
+			result.AAAA = []net.IP{ipv6}
 		}
 		return result, nil
 	}
