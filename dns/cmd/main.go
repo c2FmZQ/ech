@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,16 +42,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "dns.DoH: %v", err)
 		os.Exit(1)
 	}
-	for i, v := range result.Question {
-		fmt.Printf("  Question[%d] Name: %q Type: %d Class: %d\n", i, v.Name, v.Type, v.Class)
-	}
-	for i, v := range result.Answer {
-		fmt.Printf("    Answer[%d] Name: %q Type: %d Class: %d Data: %+v\n", i, v.Name, v.Type, v.Class, v.Data)
-	}
-	for i, v := range result.Authority {
-		fmt.Printf(" Authority[%d] Name: %q Type: %d Class: %d Data: %+v\n", i, v.Name, v.Type, v.Class, v.Data)
-	}
-	for i, v := range result.Additional {
-		fmt.Printf("Additional[%d] Name: %q Type: %d Class: %d Data: %+v\n", i, v.Name, v.Type, v.Class, v.Data)
-	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(result)
 }

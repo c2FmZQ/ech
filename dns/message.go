@@ -67,6 +67,7 @@ var (
 	}
 )
 
+// RRType returns the RR type id for a type name.
 func RRType(t string) uint16 {
 	return rrTypes[strings.ToUpper(t)]
 }
@@ -74,45 +75,45 @@ func RRType(t string) uint16 {
 // Message is a RFC 1035 DNS Message.
 type Message struct {
 	// Header
-	ID     uint16
-	QR     uint8
-	OpCode uint8
-	AA     uint8
-	TC     uint8
-	RD     uint8
-	RA     uint8
-	RCode  uint8
+	ID     uint16 `json:"id,omitempty"`
+	QR     uint8  `json:"qr"`
+	OpCode uint8  `json:"opcode,omitempty"`
+	AA     uint8  `json:"aa,omitempty"`
+	TC     uint8  `json:"tc,omitempty"`
+	RD     uint8  `json:"rd,omitempty"`
+	RA     uint8  `json:"ra,omitempty"`
+	RCode  uint8  `json:"rcode"`
 
 	// Question section
-	Question []Question
+	Question []Question `json:"question,omitempty"`
 	// Answer section
-	Answer []RR
+	Answer []RR `json:"answer,omitempty"`
 	// Authority section
-	Authority []RR
+	Authority []RR `json:"authority,omitempty"`
 	// Additional information section
-	Additional []RR
+	Additional []RR `json:"additional,omitempty"`
 }
 
 // A question for a name server.
 type Question struct {
-	Name  string
-	Type  uint16
-	Class uint16
+	Name  string `json:"name"`
+	Type  uint16 `json:"type"`
+	Class uint16 `json:"class"`
 }
 
 // A Resource Record.
 type RR struct {
-	Name  string
-	Type  uint16
-	Class uint16
-	TTL   uint32
-	Data  any
+	Name  string `json:"name"`
+	Type  uint16 `json:"type"`
+	Class uint16 `json:"class"`
+	TTL   uint32 `json:"ttl"`
+	Data  any    `json:"data"`
 }
 
 // MX represents a MX Resource Record.
 type MX struct {
-	Preference uint16
-	Exchange   string
+	Preference uint16 `json:"preference"`
+	Exchange   string `json:"exchange"`
 }
 
 // TXT represents a TXT Resource Record.
@@ -120,26 +121,45 @@ type TXT []string
 
 // SOA represents a SOA Resource Record.
 type SOA struct {
-	MName   string
-	RName   string
-	Serial  uint32
-	Refresh uint32
-	Retry   uint32
-	Expire  uint32
-	Minimum uint32
+	MName   string `json:"mname"`
+	RName   string `json:"rname"`
+	Serial  uint32 `json:"serial"`
+	Refresh uint32 `json:"refresh"`
+	Retry   uint32 `json:"retry"`
+	Expire  uint32 `json:"expire"`
+	Minimum uint32 `json:"minimum"`
 }
 
-// HTTPS represents a HTTPS Resource Record.
-// https://www.rfc-editor.org/rfc/rfc9460
+// SRV represents a SRV Resource Record.
+type SRV struct {
+	Priority uint16 `json:"priority"`
+	Weight   uint16 `json:"weight"`
+	Port     uint16 `json:"port"`
+	Target   string `json:"target"`
+}
+
+// SVCB represents a SVCB Resource Record. RFC 9460
+type SVCB struct {
+	Priority uint16      `json:"priority"`
+	Target   string      `json:"target"`
+	Params   []SVCBParam `json:"params"`
+}
+
+type SVCBParam struct {
+	Key   uint16 `json:"key"`
+	Value []byte `json:"value,omitempty"`
+}
+
+// HTTPS represents a HTTPS Resource Record. RFC 9460
 type HTTPS struct {
-	Priority      uint16
-	Target        string
-	ALPN          []string
-	NoDefaultALPN bool
-	Port          uint16
-	IPv4Hint      net.IP
-	IPv6Hint      net.IP
-	ECH           []byte
+	Priority      uint16   `json:"priority"`
+	Target        string   `json:"target,omitempty"`
+	ALPN          []string `json:"alpn,omitempty"`
+	NoDefaultALPN bool     `json:"no-default-alpn,omitempty"`
+	Port          uint16   `json:"port,omitempty"`
+	IPv4Hint      net.IP   `json:"ipv4hint,omitempty"`
+	IPv6Hint      net.IP   `json:"ipv6hint,omitempty"`
+	ECH           []byte   `json:"ech,omitempty"`
 }
 
 // Bytes returns the serialized message. It includes only the header and the
@@ -346,6 +366,18 @@ func (d decoder) rr(s *cryptobyte.String) (RR, error) {
 			return rr, ErrDecodeError
 		}
 		rr.Data = v
+	case 33: // SRV
+		v, err := d.srv(data)
+		if err != nil {
+			return rr, err
+		}
+		rr.Data = v
+	case 64: // SVCB
+		v, err := d.svcb(data)
+		if err != nil {
+			return rr, err
+		}
+		rr.Data = v
 	case 65: // HTTPS
 		v, err := d.https(data)
 		if err != nil {
@@ -397,6 +429,51 @@ func (d decoder) soa(s *cryptobyte.String) (SOA, error) {
 	}
 	if !s.ReadUint32(&result.Minimum) {
 		return result, ErrDecodeError
+	}
+	return result, nil
+}
+
+func (d decoder) srv(b []byte) (SRV, error) {
+	var result SRV
+	s := cryptobyte.String(b)
+	if !s.ReadUint16(&result.Priority) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint16(&result.Weight) {
+		return result, ErrDecodeError
+	}
+	if !s.ReadUint16(&result.Port) {
+		return result, ErrDecodeError
+	}
+	name, err := d.name(&s)
+	if err != nil {
+		return result, err
+	}
+	result.Target = name
+	return result, nil
+}
+
+func (d decoder) svcb(b []byte) (SVCB, error) {
+	var result SVCB
+	s := cryptobyte.String(b)
+	if !s.ReadUint16(&result.Priority) {
+		return result, ErrDecodeError
+	}
+	name, err := d.name(&s)
+	if err != nil {
+		return result, err
+	}
+	result.Target = name
+	for !s.Empty() {
+		var key uint16
+		if !s.ReadUint16(&key) {
+			return result, ErrDecodeError
+		}
+		var value cryptobyte.String
+		if !s.ReadUint16LengthPrefixed(&value) {
+			return result, ErrDecodeError
+		}
+		result.Params = append(result.Params, SVCBParam{Key: key, Value: value})
 	}
 	return result, nil
 }
@@ -462,10 +539,10 @@ func (h HTTPS) String() string {
 		s += fmt.Sprintf(" port=%d", h.Port)
 	}
 	if len(h.IPv4Hint) > 0 {
-		s += fmt.Sprintf(" ipv4-hint=%s", h.IPv4Hint)
+		s += fmt.Sprintf(" ipv4hint=%s", h.IPv4Hint)
 	}
 	if len(h.IPv6Hint) > 0 {
-		s += fmt.Sprintf(" ipv6-hint=%s", h.IPv6Hint)
+		s += fmt.Sprintf(" ipv6hint=%s", h.IPv6Hint)
 	}
 	if len(h.ECH) > 0 {
 		s += fmt.Sprintf(" ech=%q", base64.StdEncoding.EncodeToString(h.ECH))
