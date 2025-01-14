@@ -145,12 +145,6 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 }
 
 var (
-	rrTypes = map[string]uint16{
-		"A":     1,
-		"CNAME": 5,
-		"AAAA":  28,
-		"HTTPS": 65,
-	}
 	ErrFormatError       = errors.New("format error")
 	ErrServerFailure     = errors.New("server failure")
 	ErrNonExistentDomain = errors.New("non-existent domain")
@@ -172,7 +166,7 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 		RD: 1,
 		Question: []dns.Question{{
 			Name:  name,
-			Type:  rrTypes[typ],
+			Type:  dns.RRType(typ),
 			Class: 1,
 		}},
 	}
@@ -192,7 +186,7 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 	want := strings.TrimSuffix(name, ".")
 	for _, a := range result.Answer {
 		name := strings.TrimSuffix(a.Name, ".")
-		if name == want && a.Type == rrTypes[typ] {
+		if name == want && a.Type == dns.RRType(typ) {
 			res = append(res, a.Data)
 		}
 		if name == want && a.Type == 5 { // CNAME

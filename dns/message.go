@@ -11,7 +11,65 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 )
 
-var ErrDecodeError = errors.New("decode error")
+var (
+	ErrDecodeError = errors.New("decode error")
+
+	// A map of Resource Record types.
+	// https://en.wikipedia.org/wiki/List_of_DNS_record_types
+	rrTypes = map[string]uint16{
+		"A":          1,     // RFC 1035
+		"AAAA":       28,    // RFC 3596
+		"AFSDB":      18,    // RFC 1183
+		"APL":        42,    // RFC 3123
+		"CAA":        257,   // RFC 6844
+		"CDNSKEY":    60,    // RFC 7344
+		"CDS":        59,    // RFC 7344
+		"CERT":       37,    // RFC 4398
+		"CNAME":      5,     // RFC 1035
+		"CSYNC":      62,    // RFC 7477
+		"DHCID":      49,    // RFC 4701
+		"DLV":        32769, // RFC 4431
+		"DNAME":      39,    // RFC 6672
+		"DNSKEY":     48,    // RFC 4034
+		"DS":         43,    // RFC 4034
+		"EUI48":      108,   // RFC 7043
+		"EUI64":      109,   // RFC 7043
+		"HINFO":      13,    // RFC 8482
+		"HIP":        55,    // RFC 8005
+		"HTTPS":      65,    // RFC 9460
+		"IPSECKEY":   45,    // RFC 4025
+		"KEY":        25,    // RFC 2535 and RFC 2930
+		"KX":         36,    // RFC 2230
+		"LOC":        29,    // RFC 1876
+		"MX":         15,    // RFC 1035 and RFC 7505
+		"NAPTR":      35,    // RFC 3403
+		"NS":         2,     // RFC 1035
+		"NSEC":       47,    // RFC 4034
+		"NSEC3":      50,    // RFC 5155
+		"NSEC3PARAM": 51,    // RFC 5155
+		"OPENPGPKEY": 61,    // RFC 7929
+		"PTR":        12,    // RFC 1035
+		"RP":         17,    // RFC 1183
+		"RRSIG":      46,    // RFC 4034
+		"SIG":        24,    // RFC 2535
+		"SMIMEA":     53,    // RFC 8162
+		"SOA":        6,     // RFC 1035 and RFC 2308
+		"SRV":        33,    // RFC 2782
+		"SSHFP":      44,    // RFC 4255
+		"SVCB":       64,    // RFC 9460
+		"TA":         32768, //
+		"TKEY":       249,   // RFC 2930
+		"TLSA":       52,    // RFC 6698
+		"TSIG":       250,   // RFC 2845
+		"TXT":        16,    // RFC 1035
+		"URI":        256,   // RFC 7553
+		"ZONEMD":     63,    // RFC 8976
+	}
+)
+
+func RRType(t string) uint16 {
+	return rrTypes[strings.ToUpper(t)]
+}
 
 // Message is a RFC 1035 DNS Message.
 type Message struct {
