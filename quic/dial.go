@@ -41,14 +41,14 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config, qc *quic.Co
 	default:
 		return nil, errors.New("network must be one of udp, udp4, udp6")
 	}
-	var ipaddr []string
+	var ipaddr []net.IP
 	if ipv4 {
 		if n := len(result.A); n > 0 {
 			ipaddr = append(ipaddr, result.A...)
 		} else {
 			for _, h := range result.HTTPS {
 				if len(h.IPv4Hint) > 0 {
-					ipaddr = append(ipaddr, h.IPv4Hint.String())
+					ipaddr = append(ipaddr, h.IPv4Hint)
 				}
 			}
 		}
@@ -59,7 +59,7 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config, qc *quic.Co
 		} else {
 			for _, h := range result.HTTPS {
 				if len(h.IPv6Hint) > 0 {
-					ipaddr = append(ipaddr, h.IPv6Hint.String())
+					ipaddr = append(ipaddr, h.IPv6Hint)
 				}
 			}
 		}
@@ -81,7 +81,7 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config, qc *quic.Co
 		if len(ipaddr) > 1 {
 			ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 		}
-		conn, err := quic.DialAddr(ctx, net.JoinHostPort(addr, port), tc, qc)
+		conn, err := quic.DialAddr(ctx, net.JoinHostPort(addr.String(), port), tc, qc)
 		if cancel != nil {
 			cancel()
 		}
