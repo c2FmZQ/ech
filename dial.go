@@ -28,7 +28,10 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 	if err != nil {
 		return nil, err
 	}
-	iport, _ := strconv.Atoi(port)
+	iport, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, err
+	}
 	targets := result.Targets(network, iport)
 	if len(targets) == 0 {
 		return nil, errors.New("no address")
@@ -37,12 +40,6 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 		tc.ServerName = host
 	}
 	needECH := tc.EncryptedClientHelloConfigList == nil
-	for _, h := range result.HTTPS {
-		if h.Port > 0 {
-			port = strconv.Itoa(int(h.Port))
-			break
-		}
-	}
 	dialer := &net.Dialer{
 		Resolver: &net.Resolver{
 			Dial: func(context.Context, string, string) (net.Conn, error) {
