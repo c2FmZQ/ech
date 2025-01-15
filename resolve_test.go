@@ -137,7 +137,7 @@ func TestResolve(t *testing.T) {
 		{
 			name: "bar.example.com",
 			want: ResolveResult{
-				Address: []net.IP{net.IP{192, 168, 0, 4}},
+				Address: []net.IP{{192, 168, 0, 4}},
 				HTTPS: []dns.HTTPS{{
 					Priority: 1, ALPN: []string{"h2"}, ECH: []byte{0, 1, 2},
 				}},
@@ -157,7 +157,7 @@ func TestResolve(t *testing.T) {
 		{
 			name: "yyy.example.com",
 			want: ResolveResult{
-				Address: []net.IP{net.IP{192, 168, 0, 5}},
+				Address: []net.IP{{192, 168, 0, 5}},
 				HTTPS: []dns.HTTPS{{
 					Priority: 1, Target: "example.com", ALPN: []string{"h2"}, ECH: []byte{0, 1, 2},
 				}},
