@@ -276,12 +276,14 @@ func (rr RR) Bytes() []byte {
 		case net.IP:
 			s.AddBytes([]byte(data))
 		case string:
-			for _, p := range strings.Split(data, ".") {
-				s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
-					s.AddBytes([]byte(p))
-				})
+			if rr.Type == 2 || rr.Type == 5 || rr.Type == 12 { // NS, CNAME, PTR
+				for _, p := range strings.Split(data, ".") {
+					s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
+						s.AddBytes([]byte(p))
+					})
+				}
+				s.AddUint8(0)
 			}
-			s.AddUint8(0)
 		case HTTPS:
 			s.AddUint16(data.Priority)
 			if len(data.Target) > 0 {
