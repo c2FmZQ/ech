@@ -219,8 +219,8 @@ type HTTPS struct {
 	ALPN          []string `json:"alpn,omitempty"`
 	NoDefaultALPN bool     `json:"no-default-alpn,omitempty"`
 	Port          uint16   `json:"port,omitempty"`
-	IPv4Hint      net.IP   `json:"ipv4hint,omitempty"`
-	IPv6Hint      net.IP   `json:"ipv6hint,omitempty"`
+	IPv4Hint      []net.IP `json:"ipv4hint,omitempty"`
+	IPv6Hint      []net.IP `json:"ipv6hint,omitempty"`
 	ECH           []byte   `json:"ech,omitempty"`
 }
 
@@ -397,7 +397,7 @@ func (d decoder) rr(s *cryptobyte.String) (RR, error) {
 	switch rr.Type {
 	case 1: // A
 		v := net.IP(data)
-		if v == nil || len(v) != 4 {
+		if len(v) != 4 {
 			return rr, ErrDecodeError
 		}
 		rr.Data = v
@@ -431,7 +431,7 @@ func (d decoder) rr(s *cryptobyte.String) (RR, error) {
 		rr.Data = TXT(result)
 	case 28: // AAAA
 		v := net.IP(data)
-		if v == nil || len(v) != 16 {
+		if len(v) != 16 {
 			return rr, ErrDecodeError
 		}
 		rr.Data = v
@@ -675,11 +675,23 @@ func (d decoder) https(b []byte) (HTTPS, error) {
 				return result, ErrDecodeError
 			}
 		case 4: // ipv4hint
-			result.IPv4Hint = net.IP(value)
+			for !value.Empty() {
+				var ip []byte
+				if !value.ReadBytes(&ip, 4) {
+					return result, ErrDecodeError
+				}
+				result.IPv4Hint = append(result.IPv4Hint, net.IP(ip))
+			}
 		case 5: // ECH
 			result.ECH = value
 		case 6: // ipv6hint
-			result.IPv6Hint = net.IP(value)
+			for !value.Empty() {
+				var ip []byte
+				if !value.ReadBytes(&ip, 16) {
+					return result, ErrDecodeError
+				}
+				result.IPv6Hint = append(result.IPv6Hint, net.IP(ip))
+			}
 		}
 	}
 	return result, nil
@@ -697,10 +709,18 @@ func (h HTTPS) String() string {
 		s += fmt.Sprintf(" port=%d", h.Port)
 	}
 	if len(h.IPv4Hint) > 0 {
-		s += fmt.Sprintf(" ipv4hint=%s", h.IPv4Hint)
+		var ip []string
+		for _, v := range h.IPv4Hint {
+			ip = append(ip, v.String())
+		}
+		s += fmt.Sprintf(" ipv4hint=%s", strings.Join(ip, ","))
 	}
 	if len(h.IPv6Hint) > 0 {
-		s += fmt.Sprintf(" ipv6hint=%s", h.IPv6Hint)
+		var ip []string
+		for _, v := range h.IPv6Hint {
+			ip = append(ip, v.String())
+		}
+		s += fmt.Sprintf(" ipv6hint=%s", strings.Join(ip, ","))
 	}
 	if len(h.ECH) > 0 {
 		s += fmt.Sprintf(" ech=%q", base64.StdEncoding.EncodeToString(h.ECH))
