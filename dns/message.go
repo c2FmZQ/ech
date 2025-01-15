@@ -238,9 +238,9 @@ func (m Message) Bytes() []byte {
 	s.AddUint16(m.ID)
 	s.AddUint16(uint16(m.QR&1)<<15 | uint16(m.OpCode&0xf)<<11 | uint16(m.AA&1)<<10 | uint16(m.TC&1)<<9 | uint16(m.RD&1)<<8 | uint16(m.RA&1)<<7 | uint16(m.RCode&0xf))
 	s.AddUint16(uint16(len(m.Question)))
-	s.AddUint16(0)
-	s.AddUint16(0)
-	s.AddUint16(0)
+	s.AddUint16(uint16(len(m.Answer)))
+	s.AddUint16(uint16(len(m.Authority)))
+	s.AddUint16(uint16(len(m.Additional)))
 	for _, v := range m.Question {
 		parts := strings.Split(strings.TrimSuffix(v.Name, "."), ".")
 		for _, p := range parts {
@@ -252,6 +252,93 @@ func (m Message) Bytes() []byte {
 		s.AddUint16(v.Type)
 		s.AddUint16(v.Class)
 	}
+	for _, v := range [][]RR{m.Answer, m.Authority, m.Additional} {
+		for _, rr := range v {
+			s.AddBytes(rr.Bytes())
+		}
+	}
+	return s.BytesOrPanic()
+}
+
+func (rr RR) Bytes() []byte {
+	s := cryptobyte.NewBuilder(nil)
+	for _, p := range strings.Split(rr.Name, ".") {
+		s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
+			s.AddBytes([]byte(p))
+		})
+	}
+	s.AddUint8(0)
+	s.AddUint16(rr.Type)
+	s.AddUint16(rr.Class)
+	s.AddUint32(rr.TTL)
+	s.AddUint16LengthPrefixed(func(s *cryptobyte.Builder) {
+		switch data := rr.Data.(type) {
+		case net.IP:
+			s.AddBytes([]byte(data))
+		case string:
+			for _, p := range strings.Split(data, ".") {
+				s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
+					s.AddBytes([]byte(p))
+				})
+			}
+			s.AddUint8(0)
+		case HTTPS:
+			s.AddUint16(data.Priority)
+			if len(data.Target) > 0 {
+				for _, p := range strings.Split(data.Target, ".") {
+					s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
+						s.AddBytes([]byte(p))
+					})
+				}
+			}
+			s.AddUint8(0)
+			if len(data.ALPN) > 0 {
+				s.AddUint16(1)
+				s.AddUint16LengthPrefixed(func(s *cryptobyte.Builder) {
+					for _, p := range data.ALPN {
+						s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
+							s.AddBytes([]byte(p))
+						})
+					}
+				})
+			}
+			if data.NoDefaultALPN {
+				s.AddUint16(2)
+				s.AddUint16(0)
+			}
+			if data.Port > 0 {
+				s.AddUint16(3)
+				s.AddUint16LengthPrefixed(func(s *cryptobyte.Builder) {
+					s.AddUint16(data.Port)
+				})
+			}
+			if len(data.IPv4Hint) > 0 {
+				s.AddUint16(4)
+				s.AddUint16LengthPrefixed(func(s *cryptobyte.Builder) {
+					for _, ip := range data.IPv4Hint {
+						s.AddBytes(ip)
+					}
+				})
+			}
+			if len(data.ECH) > 0 {
+				s.AddUint16(5)
+				s.AddUint16LengthPrefixed(func(s *cryptobyte.Builder) {
+					s.AddBytes(data.ECH)
+				})
+			}
+			if len(data.IPv6Hint) > 0 {
+				s.AddUint16(6)
+				s.AddUint16LengthPrefixed(func(s *cryptobyte.Builder) {
+					for _, ip := range data.IPv6Hint {
+						s.AddBytes(ip)
+					}
+				})
+			}
+
+		default:
+			panic(fmt.Sprintf("cannot serialize %T", rr.Data))
+		}
+	})
 	return s.BytesOrPanic()
 }
 

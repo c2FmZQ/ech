@@ -45,7 +45,7 @@ func main() {
 	for _, h := range result.HTTPS {
 		fmt.Printf("HTTPS: %s\n", h)
 	}
-	if ot := result.OrderedTargets("tcp", 443); len(ot) > 0 {
+	if ot := result.Targets("tcp", 443); len(ot) > 0 {
 		fmt.Println("\nOrdered Targets:")
 		for _, a := range ot {
 			var ech string

@@ -29,7 +29,7 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 		return nil, err
 	}
 	iport, _ := strconv.Atoi(port)
-	targets := result.OrderedTargets(network, iport)
+	targets := result.Targets(network, iport)
 	if len(targets) == 0 {
 		return nil, errors.New("no address")
 	}

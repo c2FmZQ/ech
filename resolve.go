@@ -46,8 +46,8 @@ type Target struct {
 	ECH     []byte
 }
 
-// OrderedTargets computes the target addresses to attempt in preferred order.
-func (r ResolveResult) OrderedTargets(network string, defaultPort int) []Target {
+// Targets computes the target addresses to attempt in preferred order.
+func (r ResolveResult) Targets(network string, defaultPort int) []Target {
 	var out []Target
 	address := func(ip net.IP, port int) net.Addr {
 		if (network == "tcp4" || network == "udp4") && len(ip) != 4 {
