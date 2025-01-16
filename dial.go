@@ -51,14 +51,12 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 	for _, target := range targets {
 	retry:
 		ctx := ctx
-		cancel := context.CancelFunc(nil)
 		if len(targets) > 1 {
+			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
 		}
 		conn, err := dialer.DialContext(ctx, network, target.Address.String())
-		if cancel != nil {
-			cancel()
-		}
 		if err != nil {
 			errs = append(errs, err)
 			continue
