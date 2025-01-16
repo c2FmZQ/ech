@@ -10,7 +10,7 @@ import (
 )
 
 // Dial connects to the given network and address using [net.Dialer] and
-// [tls.Client]. Name resolution is done with [Resolve] and
+// [tls.Client]. Name resolution is done with [Resolver] and
 // EncryptedClientHelloConfigList will be set automatically if the hostname has
 // a HTTPS DNS record with ech.
 func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn, error) {

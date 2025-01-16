@@ -13,7 +13,7 @@ import (
 )
 
 // Dial connects to the given network and address using [quic.DialAddr]. Name
-// resolution is done with [ech.Resolve] and EncryptedClientHelloConfigList will
+// resolution is done with [ech.Resolver] and EncryptedClientHelloConfigList will
 // be set automatically if the hostname has a HTTPS DNS record with ech.
 func Dial(ctx context.Context, network, addr string, tc *tls.Config, qc *quic.Config) (quic.Connection, error) {
 	if tc != nil {
