@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/c2FmZQ/ech/internal/hpke"
+	"github.com/c2FmZQ/ech/testutil"
 )
 
 // TestConn is an end-to-end test with a go client and a go server where the
@@ -28,9 +29,9 @@ func TestConn(t *testing.T) {
 		t.Fatalf("net.Listen: %v", err)
 	}
 	defer ln.Close()
-	tlsCert, err := newCert("www.example.com", "example.com")
+	tlsCert, err := testutil.NewCert("www.example.com", "example.com")
 	if err != nil {
-		t.Fatalf("newCert: %v", err)
+		t.Fatalf("NewCert: %v", err)
 	}
 	rootCAs := x509.NewCertPool()
 	rootCAs.AddCert(tlsCert.Leaf)
@@ -122,9 +123,9 @@ func TestConnRetry(t *testing.T) {
 	}
 	defer ln.Close()
 
-	tlsCert, err := newCert("www.example.com", "example.com")
+	tlsCert, err := testutil.NewCert("www.example.com", "example.com")
 	if err != nil {
-		t.Fatalf("newCert: %v", err)
+		t.Fatalf("NewCert: %v", err)
 	}
 	rootCAs := x509.NewCertPool()
 	rootCAs.AddCert(tlsCert.Leaf)

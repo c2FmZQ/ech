@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/c2FmZQ/ech/dns"
+	"github.com/c2FmZQ/ech/testutil"
 )
 
 func TestDial(t *testing.T) {
@@ -28,22 +29,22 @@ func TestDial(t *testing.T) {
 	defer ln.Close()
 	addr := ln.Addr().(*net.TCPAddr)
 
-	tlsCert, err := newCert("example.com")
+	tlsCert, err := testutil.NewCert("example.com")
 	if err != nil {
-		t.Fatalf("newCert: %v", err)
+		t.Fatalf("NewCert: %v", err)
 	}
 	rootCAs := x509.NewCertPool()
 	rootCAs.AddCert(tlsCert.Leaf)
 
-	dnsServer := startTestDNSServer(t, []dns.RR{{
+	dnsServer := testutil.StartTestDNSServer(t, []dns.RR{{
 		Name: "example.com", Type: 65, Class: 1, TTL: 60,
 		Data: dns.HTTPS{Priority: 1, Port: uint16(addr.Port), IPv4Hint: []net.IP{addr.IP}, ECH: configList},
 	}})
 	defer dnsServer.Close()
-	saveResolver := defaultResolver
-	defaultResolver = &Resolver{baseURL: url.URL{Scheme: "http", Host: dnsServer.Listener.Addr().String(), Path: "/dns-query"}}
+	saveResolver := DefaultResolver
+	DefaultResolver = &Resolver{baseURL: url.URL{Scheme: "http", Host: dnsServer.Listener.Addr().String(), Path: "/dns-query"}}
 	defer func() {
-		defaultResolver = saveResolver
+		DefaultResolver = saveResolver
 	}()
 
 	go func() {
