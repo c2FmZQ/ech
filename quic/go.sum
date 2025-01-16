@@ -1,5 +1,5 @@
-github.com/c2FmZQ/ech v0.1.6 h1:xM9deLBL4WKCZbo4lShmn5u5byZym5OauAdM9c8pu7c=
-github.com/c2FmZQ/ech v0.1.6/go.mod h1:shk3kb9AiqI1cFKKVABmlOsF/Sa/XiLzowd35u+H2eM=
+github.com/c2FmZQ/ech v0.1.8 h1:fTGraYVo8B4M1TKF8ehGndvQmYIdHXYJfExv5g8kOfA=
+github.com/c2FmZQ/ech v0.1.8/go.mod h1:shk3kb9AiqI1cFKKVABmlOsF/Sa/XiLzowd35u+H2eM=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/go-logr/logr v1.4.2 h1:6pFjapn8bFcIbiKo3XT4j/BhANplGihG6tvd+8rYgrY=
