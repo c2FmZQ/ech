@@ -106,8 +106,7 @@ func (r ResolveResult) Targets(network string, defaultPort int) []Target {
 	return out
 }
 
-// Resolve uses the default DNS-over-HTTPS resolver (currently cloudflare) to
-// resolve name.
+// Resolve is an alias for [Resolver.Resolve] with the Cloudflare Resolver.
 func Resolve(ctx context.Context, name string) (ResolveResult, error) {
 	return defaultResolver.Resolve(ctx, name)
 }
@@ -155,7 +154,14 @@ func NewResolver(URL string) (*Resolver, error) {
 	}, nil
 }
 
-// Resolver is a DNS-over-HTTPS client.
+// Resolver is a RFC 8484 DNS-over-HTTPS (DoH) client.
+//
+// The resolver uses HTTPS DNS Resource Records whenever possible to retrieve
+// the service's current Encrypted Client Hello (ECH) ConfigList. It also
+// follows the RFC 9460 specifications to interpret the other HTTPS RR fields.
+//
+// The [ResolveResult] contains all the IP addresses, and final HTTPS records
+// needed to establish a secure and private TLS connection using ECH.
 type Resolver struct {
 	baseURL url.URL
 }
