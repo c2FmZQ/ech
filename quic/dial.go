@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/c2FmZQ/ech"
@@ -29,59 +30,33 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config, qc *quic.Co
 	if err != nil {
 		return nil, err
 	}
-	var ipv4, ipv6 bool
-	switch network {
-	case "udp":
-		ipv4 = true
-		ipv6 = true
-	case "udp4":
-		ipv4 = true
-	case "udp6":
-		ipv6 = true
-	default:
-		return nil, errors.New("network must be one of udp, udp4, udp6")
+	iport, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, err
 	}
-	var ipaddr []net.IP
-	if ipv4 {
-		if n := len(result.A); n > 0 {
-			ipaddr = append(ipaddr, result.A...)
-		} else {
-			for _, h := range result.HTTPS {
-				if len(h.IPv4Hint) > 0 {
-					ipaddr = append(ipaddr, h.IPv4Hint)
-				}
-			}
-		}
+	targets := result.Targets(network, iport)
+	if len(targets) == 0 {
+		return nil, errors.New("no address")
 	}
-	if ipv6 {
-		if n := len(result.AAAA); n > 0 {
-			ipaddr = append(ipaddr, result.AAAA...)
-		} else {
-			for _, h := range result.HTTPS {
-				if len(h.IPv6Hint) > 0 {
-					ipaddr = append(ipaddr, h.IPv6Hint)
-				}
-			}
-		}
-	}
-	if len(ipaddr) == 0 {
+	if len(targets) == 0 {
 		return nil, errors.New("no address")
 	}
 	if tc.ServerName == "" {
 		tc.ServerName = host
 	}
-	if tc.EncryptedClientHelloConfigList == nil {
-		tc.EncryptedClientHelloConfigList = result.ECH()
-	}
+	needECH := tc.EncryptedClientHelloConfigList == nil
 	var errs []error
-	for _, addr := range ipaddr {
+	for _, target := range targets {
 	retry:
 		ctx := ctx
 		cancel := context.CancelFunc(nil)
-		if len(ipaddr) > 1 {
+		if len(targets) > 1 {
 			ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 		}
-		conn, err := quic.DialAddr(ctx, net.JoinHostPort(addr.String(), port), tc, qc)
+		if needECH {
+			tc.EncryptedClientHelloConfigList = target.ECH
+		}
+		conn, err := quic.DialAddr(ctx, target.Address.String(), tc, qc)
 		if cancel != nil {
 			cancel()
 		}
