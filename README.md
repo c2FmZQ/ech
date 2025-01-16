@@ -1,3 +1,5 @@
+[![Go Reference](https://pkg.go.dev/badge/github.com/c2FmZQ/ech.svg)](https://pkg.go.dev/github.com/c2FmZQ/ech)
+
 # Encrypted Client Hello with Split Mode Topology
 
 This repo implements a go library to support Encrypted Client Hello with a Split Mode Topology, as described in https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/
