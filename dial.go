@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
+	"strconv"
 	"time"
 )
 
@@ -27,50 +28,18 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 	if err != nil {
 		return nil, err
 	}
-	var ipv4, ipv6 bool
-	switch network {
-	case "tcp":
-		ipv4 = true
-		ipv6 = true
-	case "tcp4":
-		ipv4 = true
-	case "tcp6":
-		ipv6 = true
-	default:
-		return nil, errors.New("network must be one of tcp, tcp4, tcp6")
+	iport, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, err
 	}
-	var ipaddr []net.IP
-	if ipv4 {
-		if n := len(result.A); n > 0 {
-			ipaddr = append(ipaddr, result.A...)
-		} else {
-			for _, h := range result.HTTPS {
-				if len(h.IPv4Hint) > 0 {
-					ipaddr = append(ipaddr, h.IPv4Hint)
-				}
-			}
-		}
-	}
-	if ipv6 {
-		if n := len(result.AAAA); n > 0 {
-			ipaddr = append(ipaddr, result.AAAA...)
-		} else {
-			for _, h := range result.HTTPS {
-				if len(h.IPv6Hint) > 0 {
-					ipaddr = append(ipaddr, h.IPv6Hint)
-				}
-			}
-		}
-	}
-	if len(ipaddr) == 0 {
+	targets := result.Targets(network, iport)
+	if len(targets) == 0 {
 		return nil, errors.New("no address")
 	}
 	if tc.ServerName == "" {
 		tc.ServerName = host
 	}
-	if tc.EncryptedClientHelloConfigList == nil {
-		tc.EncryptedClientHelloConfigList = result.ECH()
-	}
+	needECH := tc.EncryptedClientHelloConfigList == nil
 	dialer := &net.Dialer{
 		Resolver: &net.Resolver{
 			Dial: func(context.Context, string, string) (net.Conn, error) {
@@ -79,20 +48,23 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 		},
 	}
 	var errs []error
-	for _, addr := range ipaddr {
+	for _, target := range targets {
 	retry:
 		ctx := ctx
 		cancel := context.CancelFunc(nil)
-		if len(ipaddr) > 1 {
-			ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		if len(targets) > 1 {
+			ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
 		}
-		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(addr.String(), port))
+		conn, err := dialer.DialContext(ctx, network, target.Address.String())
 		if cancel != nil {
 			cancel()
 		}
 		if err != nil {
 			errs = append(errs, err)
 			continue
+		}
+		if needECH {
+			tc.EncryptedClientHelloConfigList = target.ECH
 		}
 		tlsConn := tls.Client(conn, tc)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {

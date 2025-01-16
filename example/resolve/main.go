@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"os"
@@ -38,13 +39,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Resolve: %v\n", err)
 		os.Exit(1)
 	}
-	for _, a := range result.A {
-		fmt.Printf("    A: %s\n", a)
-	}
-	for _, aaaa := range result.AAAA {
-		fmt.Printf(" AAAA: %s\n", aaaa)
+	for _, a := range result.Address {
+		fmt.Printf(" Addr: %s\n", a)
 	}
 	for _, h := range result.HTTPS {
 		fmt.Printf("HTTPS: %s\n", h)
+	}
+	if ot := result.Targets("tcp", 443); len(ot) > 0 {
+		fmt.Println("\nOrdered Targets:")
+		for _, a := range ot {
+			var ech string
+			if len(a.ECH) > 0 {
+				ech = " ech=" + base64.StdEncoding.EncodeToString(a.ECH)
+			}
+			fmt.Printf("  %s%s\n", a.Address, ech)
+		}
 	}
 }

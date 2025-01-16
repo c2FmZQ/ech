@@ -3,52 +3,107 @@ package ech
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"math/big"
 	"net"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/c2FmZQ/ech/dns"
 )
 
+var (
+	ErrInvalidName = errors.New("invalid name")
+
+	ErrFormatError       = errors.New("format error")
+	ErrServerFailure     = errors.New("server failure")
+	ErrNonExistentDomain = errors.New("non-existent domain")
+	ErrNotImplemented    = errors.New("not implemented")
+	ErrQueryRefused      = errors.New("query refused")
+
+	rcode = map[uint8]error{
+		1: ErrFormatError,
+		2: ErrServerFailure,
+		3: ErrNonExistentDomain,
+		4: ErrNotImplemented,
+		5: ErrQueryRefused,
+	}
+)
+
 // ResolveResult contains the A and HTTPS records.
 type ResolveResult struct {
-	A     []net.IP
-	AAAA  []net.IP
-	HTTPS []dns.HTTPS
+	Address    []net.IP
+	HTTPS      []dns.HTTPS
+	Additional map[string][]net.IP
 }
 
-// Addr is a convenience function that returns a random IP address or an empty
-// string.
-func (r ResolveResult) Addr() string {
-	if n := len(r.A); n > 0 {
-		return r.A[random(n)].String()
-	}
-	if n := len(r.AAAA); n > 0 {
-		return r.AAAA[random(n)].String()
-	}
-	for _, h := range r.HTTPS {
-		if len(h.IPv4Hint) > 0 {
-			return h.IPv4Hint.String()
-		}
-		if len(h.IPv6Hint) > 0 {
-			return h.IPv6Hint.String()
-		}
-	}
-	return ""
+type Target struct {
+	Address net.Addr
+	ECH     []byte
 }
 
-// ECH is a convenience function that returns the first ECH value or nil.
-func (r ResolveResult) ECH() []byte {
-	for _, h := range r.HTTPS {
-		if len(h.ECH) > 0 {
-			return h.ECH
+// Targets computes the target addresses to attempt in preferred order.
+func (r ResolveResult) Targets(network string, defaultPort int) []Target {
+	var out []Target
+	address := func(ip net.IP, port int) net.Addr {
+		if (network == "tcp4" || network == "udp4") && len(ip) != 4 {
+			return nil
+		}
+		if (network == "tcp6" || network == "udp6") && len(ip) != 16 {
+			return nil
+		}
+		switch network {
+		case "tcp", "tcp4", "tcp6":
+			return &net.TCPAddr{IP: ip, Port: port}
+		case "udp", "udp4", "udp6":
+			return &net.UDPAddr{IP: ip, Port: port}
+		default:
+			return nil
 		}
 	}
-	return nil
+	seen := make(map[string]bool)
+	add := func(ip net.IP, port int, ech []byte) {
+		addr := address(ip, port)
+		if addr == nil {
+			return
+		}
+		key := addr.String() + " " + hex.EncodeToString(ech)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, Target{Address: addr, ECH: ech})
+	}
+
+	for _, h := range r.HTTPS {
+		port := defaultPort
+		if h.Port > 0 {
+			port = int(h.Port)
+		}
+		for _, a := range h.IPv4Hint {
+			add(a, port, h.ECH)
+		}
+		for _, a := range h.IPv6Hint {
+			add(a, port, h.ECH)
+		}
+		if h.Target != "" {
+			for _, a := range r.Additional[h.Target] {
+				add(a, port, h.ECH)
+			}
+			continue
+		}
+		for _, a := range r.Address {
+			add(a, port, h.ECH)
+		}
+	}
+	for _, a := range r.Address {
+		add(a, defaultPort, nil)
+	}
+	return out
 }
 
 // Resolve uses the default DNS-over-HTTPS resolver (currently cloudflare) to
@@ -109,15 +164,17 @@ type Resolver struct {
 func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, error) {
 	result := ResolveResult{}
 	if name == "localhost" {
-		result.A = []net.IP{net.IP{127, 0, 0, 1}}
-		result.AAAA = []net.IP{net.IPv6loopback}
+		result.Address = []net.IP{
+			net.IP{127, 0, 0, 1},
+			net.IPv6loopback,
+		}
 		return result, nil
 	}
 	if ip := net.ParseIP(name); ip != nil {
 		if ipv4 := ip.To4(); ipv4 != nil {
-			result.A = []net.IP{ipv4}
-		} else if ipv6 := ip.To16(); ipv6 != nil {
-			result.AAAA = []net.IP{ipv6}
+			result.Address = []net.IP{ipv4}
+		} else {
+			result.Address = []net.IP{ip}
 		}
 		return result, nil
 	}
@@ -129,9 +186,10 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 			return result, ErrInvalidName
 		}
 	}
+
+	// First, resolve HTTPS Aliases.
 	want := name
 	seen := make(map[string]bool)
-alias:
 	for {
 		if seen[want] {
 			log.Printf("ERR Resolve(%q): alias loop detected", name)
@@ -148,51 +206,80 @@ alias:
 		if err != nil {
 			return result, err
 		}
-		for _, v := range https {
-			// Follow aliases. RFC 9460 2.4.2
-			if target := v.(dns.HTTPS).Target; target != "" {
-				want = target
+		if len(https) > 0 {
+			// Alias Mode: Priority = 0
+			v := https[0].(dns.HTTPS)
+			if v.Priority == 0 && len(v.Target) == 0 {
 				result.HTTPS = nil
-				continue alias
+				break
 			}
+			if v.Priority == 0 {
+				// Follow aliases. RFC 9460 2.4.2
+				want = v.Target
+				result.HTTPS = nil
+				continue
+			}
+		}
+		for _, v := range https {
 			result.HTTPS = append(result.HTTPS, v.(dns.HTTPS))
 		}
+		sort.Slice(result.HTTPS, func(i, j int) bool {
+			return result.HTTPS[i].Priority < result.HTTPS[j].Priority
+		})
 		break
 	}
+	// Then, resolve Service Mode Targets.
+	for _, h := range result.HTTPS {
+		if h.Priority == 0 {
+			continue
+		}
+		if len(h.Target) > 0 {
+			if err := r.resolveTarget(ctx, h.Target, &result); err != nil {
+				return result, err
+			}
+		}
+	}
+	// Then, resolve IP addresses.
 	a, err := r.resolveOne(ctx, want, "A")
 	if err != nil {
 		return result, err
 	}
 	for _, v := range a {
-		result.A = append(result.A, v.(net.IP))
+		result.Address = append(result.Address, v.(net.IP))
 	}
 	aaaa, err := r.resolveOne(ctx, want, "AAAA")
 	if err != nil {
 		return result, err
 	}
 	for _, v := range aaaa {
-		result.AAAA = append(result.AAAA, v.(net.IP))
+		result.Address = append(result.Address, v.(net.IP))
 	}
 	return result, nil
 }
 
-var (
-	ErrInvalidName = errors.New("invalid name")
-
-	ErrFormatError       = errors.New("format error")
-	ErrServerFailure     = errors.New("server failure")
-	ErrNonExistentDomain = errors.New("non-existent domain")
-	ErrNotImplemented    = errors.New("not implemented")
-	ErrQueryRefused      = errors.New("query refused")
-
-	rcode = map[uint8]error{
-		1: ErrFormatError,
-		2: ErrServerFailure,
-		3: ErrNonExistentDomain,
-		4: ErrNotImplemented,
-		5: ErrQueryRefused,
+func (r *Resolver) resolveTarget(ctx context.Context, name string, res *ResolveResult) error {
+	if res.Additional == nil {
+		res.Additional = make(map[string][]net.IP)
 	}
-)
+	if _, exists := res.Additional[name]; exists {
+		return nil
+	}
+	a, err := r.resolveOne(ctx, name, "A")
+	if err != nil {
+		return err
+	}
+	for _, v := range a {
+		res.Additional[name] = append(res.Additional[name], v.(net.IP))
+	}
+	aaaa, err := r.resolveOne(ctx, name, "AAAA")
+	if err != nil {
+		return err
+	}
+	for _, v := range aaaa {
+		res.Additional[name] = append(res.Additional[name], v.(net.IP))
+	}
+	return nil
+}
 
 func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, error) {
 	qq := &dns.Message{
