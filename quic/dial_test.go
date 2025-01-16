@@ -42,8 +42,7 @@ func TestDial(t *testing.T) {
 		}},
 	}, nil)
 	if err != nil {
-		t.Errorf("quic.ListenAddr: %v", err)
-		return
+		t.Fatalf("quic.ListenAddr: %v", err)
 	}
 	defer ln.Close()
 	addr := ln.Addr().(*net.UDPAddr)
