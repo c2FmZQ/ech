@@ -108,10 +108,11 @@ func (r ResolveResult) Targets(network string, defaultPort int) []Target {
 
 // Resolve is an alias for [Resolver.Resolve] with the Cloudflare Resolver.
 func Resolve(ctx context.Context, name string) (ResolveResult, error) {
-	return defaultResolver.Resolve(ctx, name)
+	return DefaultResolver.Resolve(ctx, name)
 }
 
-var defaultResolver = CloudflareResolver()
+// DefaultResolver is used by [Dial] and quic.Dial.
+var DefaultResolver = CloudflareResolver()
 
 // CloudflareResolver uses Cloudflare's DNS-over-HTTPS service.
 // https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/
@@ -146,7 +147,7 @@ func NewResolver(URL string) (*Resolver, error) {
 	if err != nil {
 		return nil, err
 	}
-	if u.Scheme != "https" {
+	if u.Scheme != "https" && u.Hostname() != "127.0.0.1" {
 		return nil, errors.New("service url must use https")
 	}
 	return &Resolver{
