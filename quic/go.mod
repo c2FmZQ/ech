@@ -3,13 +3,13 @@ module github.com/c2FmZQ/ech/quic
 go 1.24
 
 require (
-	github.com/c2FmZQ/ech v0.1.8
-	github.com/quic-go/quic-go v0.48.2
+	github.com/c2FmZQ/ech v0.1.9
+	github.com/quic-go/quic-go v0.49.0
 )
 
 require (
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
-	github.com/google/pprof v0.0.0-20241210010833-40e02aabc2ad // indirect
+	github.com/google/pprof v0.0.0-20250121033306-997b0b79cac0 // indirect
 	github.com/onsi/ginkgo/v2 v2.22.2 // indirect
 	go.uber.org/mock v0.5.0 // indirect
 	golang.org/x/crypto v0.32.0 // indirect
