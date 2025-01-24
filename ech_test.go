@@ -185,10 +185,6 @@ func TestConnRetry(t *testing.T) {
 		t.Logf("retry ConfigList: %v", configList)
 	})
 
-	if len(configList) == 0 {
-		t.Skip("Depends on https://github.com/golang/go/issues/70915")
-	}
-
 	t.Run("Use retry configlist", func(t *testing.T) {
 		clientConn, err := net.Dial("tcp", ln.Addr().String())
 		if err != nil {
