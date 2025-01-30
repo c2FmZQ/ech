@@ -8,7 +8,8 @@
 // A [ech.Conn] handles the Client-Facing Server part. It transparently inspects
 // the TLS handshake and decrypts/decodes Encrypted Client Hello messages. The
 // decoded ServerName and/or ALPN protocols can then be used to route the TLS
-// connection to the correct backend server.
+// connection to the correct backend server. [ech.Conn] does not terminate the
+// TLS connection.
 //
 // A regular [tls.Server] Conn with EncryptedClientHelloKeys set in its
 // [tls.Config] is required to handle the ECH Config PublicName. The other backend
@@ -44,6 +45,8 @@
 //	                        fmt.Fprintf(server, "Hello, this is public.example.com\n")
 //	                        server.Close()
 //	                default:
+//	                        // The TLS connection can terminate here, or conn could
+//	                        // be forwarded to another backend server.
 //	                        server := tls.Server(conn, &tls.Config{
 //	                                Certificates: []tls.Certificate{tlsCert},
 //	                        })
@@ -54,6 +57,9 @@
 //	}
 //
 // ECH Configs and ECH ConfigLists are created with [ech.NewConfig] and [ech.ConfigList].
+//
+// Clients can use [Resolve] and/or [Dial] to securely connect to services that publish
+// their ECH config lists in DNS records.
 //
 // The example directory has working client and server examples.
 package ech
