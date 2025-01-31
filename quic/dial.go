@@ -47,13 +47,14 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config, qc *quic.Co
 	needECH := tc.EncryptedClientHelloConfigList == nil
 	var errs []error
 	for _, target := range targets {
+		retried := false
 	retry:
 		ctx := ctx
 		cancel := context.CancelFunc(nil)
 		if len(targets) > 1 {
 			ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 		}
-		if needECH {
+		if needECH && !retried {
 			tc.EncryptedClientHelloConfigList = target.ECH
 		}
 		conn, err := quic.DialAddr(ctx, target.Address.String(), tc, qc)
@@ -62,8 +63,9 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config, qc *quic.Co
 		}
 		if err != nil {
 			var echErr *tls.ECHRejectionError
-			if errors.As(err, &echErr) && len(echErr.RetryConfigList) > 0 {
+			if errors.As(err, &echErr) && len(echErr.RetryConfigList) > 0 && !retried {
 				tc.EncryptedClientHelloConfigList = echErr.RetryConfigList
+				retried = true
 				goto retry
 			}
 			errs = append(errs, err)

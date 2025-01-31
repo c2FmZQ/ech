@@ -3,6 +3,7 @@ package ech
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io"
 	"net"
 	"net/url"
@@ -21,6 +22,14 @@ func TestDial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConfigList: %v", err)
 	}
+	_, config2, err := NewConfig(1, []byte("example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	configList2, err := ConfigList([]Config{config2})
+	if err != nil {
+		t.Fatalf("ConfigList: %v", err)
+	}
 
 	ln, err := net.Listen("tcp4", "localhost:0")
 	if err != nil {
@@ -28,8 +37,14 @@ func TestDial(t *testing.T) {
 	}
 	defer ln.Close()
 	addr := ln.Addr().(*net.TCPAddr)
+	port := addr.Port
 
-	tlsCert, err := testutil.NewCert("example.com")
+	tlsCert, err := testutil.NewCert(
+		"example.com",
+		"h1.example.com",
+		"h2.example.com",
+		"h3.example.com",
+	)
 	if err != nil {
 		t.Fatalf("NewCert: %v", err)
 	}
@@ -37,8 +52,14 @@ func TestDial(t *testing.T) {
 	rootCAs.AddCert(tlsCert.Leaf)
 
 	dnsServer := testutil.StartTestDNSServer(t, []dns.RR{{
-		Name: "example.com", Type: 65, Class: 1, TTL: 60,
+		Name: "h1.example.com", Type: 65, Class: 1, TTL: 60,
 		Data: dns.HTTPS{Priority: 1, Port: uint16(addr.Port), IPv4Hint: []net.IP{addr.IP}, ECH: configList},
+	}, {
+		Name: "h2.example.com", Type: 65, Class: 1, TTL: 60,
+		Data: dns.HTTPS{Priority: 1, Port: uint16(addr.Port), IPv4Hint: []net.IP{addr.IP}, ECH: configList2},
+	}, {
+		Name: "h3.example.com", Type: 1, Class: 1, TTL: 60,
+		Data: addr.IP,
 	}})
 	defer dnsServer.Close()
 	saveResolver := DefaultResolver
@@ -48,53 +69,66 @@ func TestDial(t *testing.T) {
 	}()
 
 	go func() {
-		serverConn, err := ln.Accept()
-		if err != nil {
-			if err != net.ErrClosed {
-				t.Errorf("ln.Accept: %v", err)
+		for {
+			serverConn, err := ln.Accept()
+			if err != nil {
+				t.Logf("Listener closed: %v", err)
+				return
 			}
-			return
-		}
-		defer serverConn.Close()
-		outConn, err := NewConn(t.Context(), serverConn, WithKeys([]Key{{
-			Config:      config,
-			PrivateKey:  privKey.Bytes(),
-			SendAsRetry: true,
-		}}))
-		if err != nil {
-			t.Errorf("NewConn: %v", err)
-			return
-		}
-		if !outConn.ECHAccepted() {
-			t.Errorf("Server ECHAccepted is false")
-		}
-		server := tls.Server(outConn, &tls.Config{
-			Certificates: []tls.Certificate{tlsCert},
-		})
-		if _, err := server.Write([]byte("Hello!\n")); err != nil {
-			t.Errorf("server.Write: %v", err)
-			return
+			go func() {
+				defer serverConn.Close()
+				keys := []Key{{
+					Config:      config,
+					PrivateKey:  privKey.Bytes(),
+					SendAsRetry: true,
+				}}
+				outConn, err := NewConn(t.Context(), serverConn, WithKeys(keys))
+				if err != nil {
+					t.Errorf("NewConn: %v", err)
+					return
+				}
+				server := tls.Server(outConn, &tls.Config{
+					Certificates:             []tls.Certificate{tlsCert},
+					EncryptedClientHelloKeys: keys,
+				})
+				if _, err := server.Write([]byte("Hello!\n")); err != nil {
+					t.Errorf("server.Write: %v", err)
+					return
+				}
+			}()
 		}
 	}()
 
-	client, err := Dial(t.Context(), "tcp", "example.com", &tls.Config{
-		ServerName:                     "example.com",
-		RootCAs:                        rootCAs,
-		NextProtos:                     []string{"h2", "http/1.1"},
-		EncryptedClientHelloConfigList: nil, // Should come from DNS
-	})
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	defer client.Close()
-	b, err := io.ReadAll(client)
-	if err != nil {
-		t.Fatalf("Body: %v", err)
-	}
-	if got, want := string(b), "Hello!\n"; got != want {
-		t.Errorf("Got %q, want %q", got, want)
-	}
-	if !client.ConnectionState().ECHAccepted {
-		t.Errorf("Client ECHAccepted is false")
+	for _, tc := range []struct {
+		host       string
+		port       int
+		configList []byte
+	}{
+		{"h1.example.com", 443, nil},          // port & config list from DNS
+		{"h2.example.com", 443, nil},          // port & config list from DNS (retry)
+		{"h3.example.com", port, configList},  // correct config list
+		{"h3.example.com", port, configList2}, // incorrect config list (retry)
+	} {
+		target := fmt.Sprintf("%s:%d", tc.host, tc.port)
+		client, err := Dial(t.Context(), "tcp", target, &tls.Config{
+			ServerName:                     tc.host,
+			RootCAs:                        rootCAs,
+			NextProtos:                     []string{"h2", "http/1.1"},
+			EncryptedClientHelloConfigList: tc.configList,
+		})
+		if err != nil {
+			t.Fatalf("[%s] Dial: %v", tc.host, err)
+		}
+		defer client.Close()
+		b, err := io.ReadAll(client)
+		if err != nil {
+			t.Fatalf("[%s] Body: %v", tc.host, err)
+		}
+		if got, want := string(b), "Hello!\n"; got != want {
+			t.Errorf("[%s] Got %q, want %q", tc.host, got, want)
+		}
+		if !client.ConnectionState().ECHAccepted {
+			t.Errorf("[%s] Client ECHAccepted is false", tc.host)
+		}
 	}
 }

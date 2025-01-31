@@ -49,6 +49,7 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 	}
 	var errs []error
 	for _, target := range targets {
+		retried := false
 	retry:
 		ctx := ctx
 		if len(targets) > 1 {
@@ -61,15 +62,16 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 			errs = append(errs, err)
 			continue
 		}
-		if needECH {
+		if needECH && !retried {
 			tc.EncryptedClientHelloConfigList = target.ECH
 		}
 		tlsConn := tls.Client(conn, tc)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
 			conn.Close()
 			var echErr *tls.ECHRejectionError
-			if errors.As(err, &echErr) && len(echErr.RetryConfigList) > 0 {
+			if errors.As(err, &echErr) && len(echErr.RetryConfigList) > 0 && !retried {
 				tc.EncryptedClientHelloConfigList = echErr.RetryConfigList
+				retried = true
 				goto retry
 			}
 			errs = append(errs, err)
