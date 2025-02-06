@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"iter"
 	"log"
 	"math/big"
 	"net"
@@ -47,8 +48,7 @@ type Target struct {
 }
 
 // Targets computes the target addresses to attempt in preferred order.
-func (r ResolveResult) Targets(network string, defaultPort int) []Target {
-	var out []Target
+func (r ResolveResult) Targets(network string, defaultPort int) iter.Seq[Target] {
 	address := func(ip net.IP, port int) net.Addr {
 		if (network == "tcp4" || network == "udp4") && len(ip) != 4 {
 			return nil
@@ -65,45 +65,56 @@ func (r ResolveResult) Targets(network string, defaultPort int) []Target {
 			return nil
 		}
 	}
-	seen := make(map[string]bool)
-	add := func(ip net.IP, port int, ech []byte) {
-		addr := address(ip, port)
-		if addr == nil {
-			return
-		}
-		key := addr.String() + " " + hex.EncodeToString(ech)
-		if seen[key] {
-			return
-		}
-		seen[key] = true
-		out = append(out, Target{Address: addr, ECH: ech})
-	}
-
-	for _, h := range r.HTTPS {
-		port := defaultPort
-		if h.Port > 0 {
-			port = int(h.Port)
-		}
-		for _, a := range h.IPv4Hint {
-			add(a, port, h.ECH)
-		}
-		for _, a := range h.IPv6Hint {
-			add(a, port, h.ECH)
-		}
-		if h.Target != "" {
-			for _, a := range r.Additional[h.Target] {
-				add(a, port, h.ECH)
+	return func(yield func(Target) bool) {
+		seen := make(map[string]bool)
+		add := func(ip net.IP, port int, ech []byte) bool {
+			addr := address(ip, port)
+			if addr == nil {
+				return true
 			}
-			continue
+			key := addr.String() + " " + hex.EncodeToString(ech)
+			if seen[key] {
+				return true
+			}
+			seen[key] = true
+			return yield(Target{Address: addr, ECH: ech})
+		}
+
+		for _, h := range r.HTTPS {
+			port := defaultPort
+			if h.Port > 0 {
+				port = int(h.Port)
+			}
+			for _, a := range h.IPv4Hint {
+				if !add(a, port, h.ECH) {
+					return
+				}
+			}
+			for _, a := range h.IPv6Hint {
+				if !add(a, port, h.ECH) {
+					return
+				}
+			}
+			if h.Target != "" {
+				for _, a := range r.Additional[h.Target] {
+					if !add(a, port, h.ECH) {
+						return
+					}
+				}
+				continue
+			}
+			for _, a := range r.Address {
+				if !add(a, port, h.ECH) {
+					return
+				}
+			}
 		}
 		for _, a := range r.Address {
-			add(a, port, h.ECH)
+			if !add(a, defaultPort, nil) {
+				return
+			}
 		}
 	}
-	for _, a := range r.Address {
-		add(a, defaultPort, nil)
-	}
-	return out
 }
 
 // Resolve is an alias for [Resolver.Resolve] with the Cloudflare Resolver.
