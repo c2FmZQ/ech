@@ -2,13 +2,11 @@ package ech
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"iter"
 	"log"
-	"math/big"
 	"net"
 	"net/url"
 	"sort"
@@ -334,15 +332,4 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 		}
 	}
 	return res, nil
-}
-
-func random(n int) int {
-	if n < 2 {
-		return 0
-	}
-	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
-	if err != nil {
-		panic(err)
-	}
-	return int(v.Int64())
 }

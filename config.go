@@ -25,6 +25,32 @@ func ConfigList(configs []Config) ([]byte, error) {
 	return b.Bytes()
 }
 
+// ParseConfigList parses a serialized ECH ConfigList.
+func ParseConfigList(b []byte) ([]ConfigSpec, error) {
+	s := cryptobyte.String(b)
+	var ss cryptobyte.String
+	if !s.ReadUint16LengthPrefixed(&ss) {
+		return nil, ErrDecodeError
+	}
+	var list []ConfigSpec
+	for !ss.Empty() {
+		if len(ss) < 4 {
+			return nil, ErrDecodeError
+		}
+		length := int(ss[2])<<8 | int(ss[3]) + 4
+		var config []byte
+		if !ss.ReadBytes(&config, length) {
+			return nil, ErrDecodeError
+		}
+		spec, err := Config(config).Spec()
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, spec)
+	}
+	return list, nil
+}
+
 // NewConfig generates an ECH Config and a private key. It currently supports:
 //   - DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305.
 //   - DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, AES-256-GCM.

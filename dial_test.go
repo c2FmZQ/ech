@@ -1,13 +1,17 @@
 package ech
 
 import (
+	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"io"
 	"net"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/c2FmZQ/ech/dns"
 	"github.com/c2FmZQ/ech/testutil"
@@ -131,4 +135,166 @@ func TestDial(t *testing.T) {
 			t.Errorf("[%s] Client ECHAccepted is false", tc.host)
 		}
 	}
+}
+
+func TestDialer(t *testing.T) {
+	_, config, err := NewConfig(1, []byte("example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	configList, err := ConfigList([]Config{config})
+	if err != nil {
+		t.Fatalf("ConfigList: %v", err)
+	}
+	dnsServer := testutil.StartTestDNSServer(t, []dns.RR{{
+		Name: "h1.example.com", Type: 65, Class: 1, TTL: 60,
+		Data: dns.HTTPS{
+			Priority: 1,
+			Port:     1000,
+			IPv4Hint: []net.IP{
+				{1, 0, 0, 1},
+				{1, 0, 0, 2},
+				{1, 0, 0, 3},
+				{1, 0, 0, 4},
+				{1, 0, 0, 5},
+			},
+			ECH: configList,
+		},
+	}, {
+		Name: "h1.example.com", Type: 65, Class: 1, TTL: 60,
+		Data: dns.HTTPS{
+			Priority: 2,
+			Port:     2000,
+			IPv4Hint: []net.IP{
+				{2, 0, 0, 1},
+				{2, 0, 0, 2},
+				{2, 0, 0, 3},
+				{2, 0, 0, 4},
+				{2, 0, 0, 5},
+			},
+		},
+	}, {
+		Name: "h1.example.com", Type: 1, Class: 1, TTL: 60,
+		Data: net.IP{3, 0, 0, 1},
+	}, {
+		Name: "h2.example.com", Type: 1, Class: 1, TTL: 60,
+		Data: net.IP{4, 0, 0, 1},
+	}})
+	defer dnsServer.Close()
+
+	dialer := &Dialer[string]{
+		Resolver: &Resolver{
+			baseURL: url.URL{
+				Scheme: "http",
+				Host:   dnsServer.Listener.Addr().String(),
+				Path:   "/dns-query",
+			},
+		},
+		PublicName:          "example.com",
+		MaxConcurrency:      4,
+		ConcurrencyInterval: 20 * time.Millisecond,
+		Timeout:             20 * time.Millisecond,
+		DialFunc: func(ctx context.Context, network, addr string, tc *tls.Config) (string, error) {
+			t.Logf("Dial %q", addr)
+			var ech string
+			if tc.EncryptedClientHelloConfigList == nil {
+				ech = " ECH nil"
+			} else if bytes.Equal(tc.EncryptedClientHelloConfigList, configList) {
+				ech = " ECH OK"
+			} else {
+				list, err := ParseConfigList(tc.EncryptedClientHelloConfigList)
+				if err != nil {
+					return "", err
+				}
+				if len(list) != 1 {
+					return "", fmt.Errorf("bad config list: %#v", list)
+				}
+				ech = " ECH publicname:" + string(list[0].PublicName)
+			}
+			<-ctx.Done()
+			return "", fmt.Errorf("pseudo-error %q%s", addr, ech)
+		},
+	}
+
+	t.Run("MultipleTargetsWithPublicName", func(t *testing.T) {
+		_, got := dialer.Dial(t.Context(), "tcp", "h1.example.com:8443", nil)
+		want := strings.TrimSpace(strings.ReplaceAll(`
+			pseudo-error "1.0.0.1:1000" ECH OK
+			pseudo-error "1.0.0.2:1000" ECH OK
+			pseudo-error "1.0.0.3:1000" ECH OK
+			pseudo-error "1.0.0.4:1000" ECH OK
+			pseudo-error "1.0.0.5:1000" ECH OK
+			pseudo-error "3.0.0.1:1000" ECH OK
+			pseudo-error "2.0.0.1:2000" ECH publicname:example.com
+			pseudo-error "2.0.0.2:2000" ECH publicname:example.com
+			pseudo-error "2.0.0.3:2000" ECH publicname:example.com
+			pseudo-error "2.0.0.4:2000" ECH publicname:example.com
+			pseudo-error "2.0.0.5:2000" ECH publicname:example.com
+			pseudo-error "3.0.0.1:2000" ECH publicname:example.com
+			pseudo-error "3.0.0.1:8443" ECH publicname:example.com`, "\t", ""))
+		if got.Error() != want {
+			t.Errorf("Got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("OneTargetNoECHWithPublicName", func(t *testing.T) {
+		_, got := dialer.Dial(t.Context(), "tcp", "h2.example.com", nil)
+		want := strings.TrimSpace(strings.ReplaceAll(`
+			pseudo-error "4.0.0.1:443" ECH publicname:example.com`, "\t", ""))
+		if got.Error() != want {
+			t.Errorf("Got %q, want %q", got, want)
+		}
+	})
+
+	dialer.PublicName = ""
+	t.Run("MultipleTargetsNoPublicName", func(t *testing.T) {
+		_, got := dialer.Dial(t.Context(), "tcp", "h1.example.com:8443", nil)
+		want := strings.TrimSpace(strings.ReplaceAll(`
+			pseudo-error "1.0.0.1:1000" ECH OK
+			pseudo-error "1.0.0.2:1000" ECH OK
+			pseudo-error "1.0.0.3:1000" ECH OK
+			pseudo-error "1.0.0.4:1000" ECH OK
+			pseudo-error "1.0.0.5:1000" ECH OK
+			pseudo-error "3.0.0.1:1000" ECH OK
+			pseudo-error "2.0.0.1:2000" ECH nil
+			pseudo-error "2.0.0.2:2000" ECH nil
+			pseudo-error "2.0.0.3:2000" ECH nil
+			pseudo-error "2.0.0.4:2000" ECH nil
+			pseudo-error "2.0.0.5:2000" ECH nil
+			pseudo-error "3.0.0.1:2000" ECH nil
+			pseudo-error "3.0.0.1:8443" ECH nil`, "\t", ""))
+		if got.Error() != want {
+			t.Errorf("Got %q, want %q", got, want)
+		}
+	})
+
+	dialer.RequireECH = true
+	t.Run("MultipleTargetsNoPublicNameRequireECH", func(t *testing.T) {
+		_, got := dialer.Dial(t.Context(), "tcp", "h1.example.com:8443", nil)
+		want := strings.TrimSpace(strings.ReplaceAll(`
+			pseudo-error "1.0.0.1:1000" ECH OK
+			pseudo-error "1.0.0.2:1000" ECH OK
+			pseudo-error "1.0.0.3:1000" ECH OK
+			pseudo-error "1.0.0.4:1000" ECH OK
+			pseudo-error "1.0.0.5:1000" ECH OK
+			pseudo-error "3.0.0.1:1000" ECH OK
+			unable to get ECH config list
+			unable to get ECH config list
+			unable to get ECH config list
+			unable to get ECH config list
+			unable to get ECH config list
+			unable to get ECH config list
+			unable to get ECH config list`, "\t", ""))
+		if got.Error() != want {
+			t.Errorf("Got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("OneTargetNoECHNoPublicNameRequireECH", func(t *testing.T) {
+		_, got := dialer.Dial(t.Context(), "tcp", "h2.example.com", nil)
+		want := "unable to get ECH config list"
+		if got.Error() != want {
+			t.Errorf("Got %q, want %q", got, want)
+		}
+	})
 }
