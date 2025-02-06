@@ -12,17 +12,18 @@ import (
 	"time"
 )
 
-// Dial connects to the given network and address using [net.Dialer] and
-// [tls.Client]. Name resolution is done with [DefaultResolver] and
-// EncryptedClientHelloConfigList will be set automatically if the hostname has
-// a HTTPS DNS record with ech.
+// Dial connects to the given network and address. Name resolution is done with
+// [DefaultResolver] and EncryptedClientHelloConfigList is set automatically if
+// the hostname has a HTTPS DNS record with ech.
 func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn, error) {
 	return NewDialer().Dial(ctx, network, addr, tc)
 }
 
 // NewDialer returns a [tls.Conn] Dialer.
 func NewDialer() *Dialer[*tls.Conn] {
-	return &Dialer[*tls.Conn]{DialFunc: dialTLSConn}
+	return &Dialer[*tls.Conn]{
+		DialFunc: dialOne,
+	}
 }
 
 // Dialer contains options for connecting to an address using Encrypted Client
@@ -47,23 +48,27 @@ type Dialer[T any] struct {
 	// to multiple targets. The default value is 3.
 	MaxConcurrency int
 	// ConcurrencyInterval is the amount of time to wait before initiating a
-	// concurrent connection attempt. The default is 1s.
+	// new concurrent connection attempt. The default is 1s.
 	ConcurrencyInterval time.Duration
 	// Timeout is the amount of time to wait for a single connection to be
-	// established, i.e. a call to DialFunc. The default value is 30s.
+	// established. The default value is 30s.
 	Timeout time.Duration
 	// DialFunc must be set to a function that will be used to connect to
 	// a network address. [NewDialer] automatically sets this value.
 	DialFunc func(ctx context.Context, network, addr string, tc *tls.Config) (T, error)
 }
 
-// Dial connects to the given network and address using [net.Dialer] and
-// [tls.Client]. EncryptedClientHelloConfigList will be set automatically if the
-// hostname has a HTTPS DNS record with ech.
+// Dial connects to the given network and address. EncryptedClientHelloConfigList
+// is set automatically if the hostname has a HTTPS DNS record with ech.
 func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Config) (T, error) {
 	var nilConn T
+	if d.DialFunc == nil {
+		return nilConn, errors.New("DialFunc must be set")
+	}
 	if tc == nil {
 		tc = &tls.Config{}
+	} else {
+		tc = tc.Clone()
 	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -88,7 +93,6 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 	targetChan := make(chan Target)
 	connChan := make(chan T)
 	errChan := make(chan error)
-	doneChan := make(chan struct{})
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -145,7 +149,7 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 			defer wg.Done()
 			for target := range targetChan {
 				tc := tc.Clone()
-				if needECH {
+				if needECH && target.ECH != nil {
 					tc.EncryptedClientHelloConfigList = target.ECH
 				}
 				if d.RequireECH && tc.EncryptedClientHelloConfigList == nil {
@@ -166,7 +170,7 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 
 	go func() {
 		wg.Wait()
-		close(doneChan)
+		close(errChan)
 	}()
 
 	go func() {
@@ -190,20 +194,21 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 		select {
 		case <-ctx.Done():
 			return nilConn, ctx.Err()
-		case <-doneChan:
-			if len(errs) == 0 {
-				return nilConn, errors.New("no address")
-			}
-			return nilConn, errors.Join(errs...)
-		case err := <-errChan:
-			errs = append(errs, err)
 		case conn := <-connChan:
 			return conn, nil
+		case err, ok := <-errChan:
+			if !ok {
+				if len(errs) == 0 {
+					return nilConn, errors.New("no address")
+				}
+				return nilConn, errors.Join(errs...)
+			}
+			errs = append(errs, err)
 		}
 	}
 }
 
-func dialTLSConn(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn, error) {
+func dialOne(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn, error) {
 	netDialer := &net.Dialer{
 		Resolver: &net.Resolver{
 			Dial: func(context.Context, string, string) (net.Conn, error) {
