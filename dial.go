@@ -40,12 +40,12 @@ type Dialer[T any] struct {
 	// the config list isn't specified in the [tls.Config] or in DNS. In
 	// that case, [Dialer.Dial] generates a fake (but valid) config list
 	// with this PublicName and use it to establish a TLS connection with
-	// the server, which should return the current config list in
+	// the server, which should return the real config list in
 	// RetryConfigList.
 	PublicName string
 	// MaxConcurrency specifies the maximum number of connections that can
-	// be attempted in parallel by Dial() when the network address resolves
-	// to multiple targets. The default value is 3.
+	// be attempted in parallel by [Dialer.Dial] when the network address
+	// resolves to multiple targets. The default value is 3.
 	MaxConcurrency int
 	// ConcurrencyInterval is the amount of time to wait before initiating a
 	// new concurrent connection attempt. The default is 1s.
@@ -93,6 +93,7 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 	targetChan := make(chan Target)
 	connChan := make(chan T)
 	errChan := make(chan error)
+	wakeChan := make(chan struct{})
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -109,6 +110,12 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 				c.Close()
 			}
 		case connChan <- conn:
+		}
+	}
+	wake := func() {
+		select {
+		case wakeChan <- struct{}{}:
+		default:
 		}
 	}
 
@@ -180,6 +187,7 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 				select {
 				case <-ctx.Done():
 					break
+				case <-wakeChan:
 				case <-time.After(interval):
 				}
 			}
@@ -204,6 +212,7 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 				return nilConn, errors.Join(errs...)
 			}
 			errs = append(errs, err)
+			wake()
 		}
 	}
 }
