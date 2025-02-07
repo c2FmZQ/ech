@@ -86,8 +86,7 @@ func NewConfig(id uint8, publicName []byte) (*ecdh.PrivateKey, Config, error) {
 
 // Spec returns the structured version of cfg.
 func (cfg Config) Spec() (ConfigSpec, error) {
-	s := cryptobyte.String(cfg)
-	return parseConfig(&s)
+	return parseConfig((*cryptobyte.String)(&cfg))
 }
 
 func parseConfig(s *cryptobyte.String) (ConfigSpec, error) {
