@@ -25,6 +25,24 @@ func ConfigList(configs []Config) ([]byte, error) {
 	return b.Bytes()
 }
 
+// ParseConfigList parses a serialized ECH ConfigList.
+func ParseConfigList(b []byte) ([]ConfigSpec, error) {
+	s := cryptobyte.String(b)
+	var ss cryptobyte.String
+	if !s.ReadUint16LengthPrefixed(&ss) {
+		return nil, ErrDecodeError
+	}
+	var list []ConfigSpec
+	for !ss.Empty() {
+		spec, err := parseConfig(&ss)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, spec)
+	}
+	return list, nil
+}
+
 // NewConfig generates an ECH Config and a private key. It currently supports:
 //   - DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305.
 //   - DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, AES-256-GCM.
@@ -68,27 +86,32 @@ func NewConfig(id uint8, publicName []byte) (*ecdh.PrivateKey, Config, error) {
 
 // Spec returns the structured version of cfg.
 func (cfg Config) Spec() (ConfigSpec, error) {
+	return parseConfig((*cryptobyte.String)(&cfg))
+}
+
+func parseConfig(s *cryptobyte.String) (ConfigSpec, error) {
 	var out ConfigSpec
-	s := cryptobyte.String(cfg)
 	if !s.ReadUint16(&out.Version) {
+		return out, ErrDecodeError
+	}
+	if out.Version != 0xfe0d {
 		return out, ErrDecodeError
 	}
 	var ss cryptobyte.String
 	if !s.ReadUint16LengthPrefixed(&ss) {
 		return out, ErrDecodeError
 	}
-	s = ss
-	if !s.ReadUint8(&out.ID) {
+	if !ss.ReadUint8(&out.ID) {
 		return out, ErrDecodeError
 	}
-	if !s.ReadUint16(&out.KEM) {
+	if !ss.ReadUint16(&out.KEM) {
 		return out, ErrDecodeError
 	}
-	if !s.ReadUint16LengthPrefixed((*cryptobyte.String)(&out.PublicKey)) {
+	if !ss.ReadUint16LengthPrefixed((*cryptobyte.String)(&out.PublicKey)) {
 		return out, ErrDecodeError
 	}
 	var cs cryptobyte.String
-	if !s.ReadUint16LengthPrefixed(&cs) {
+	if !ss.ReadUint16LengthPrefixed(&cs) {
 		return out, ErrDecodeError
 	}
 	for !cs.Empty() {
@@ -101,10 +124,10 @@ func (cfg Config) Spec() (ConfigSpec, error) {
 		}
 		out.CipherSuites = append(out.CipherSuites, suite)
 	}
-	if !s.ReadUint8(&out.MinimumNameLength) {
+	if !ss.ReadUint8(&out.MinimumNameLength) {
 		return out, ErrDecodeError
 	}
-	if !s.ReadUint8LengthPrefixed((*cryptobyte.String)(&out.PublicName)) {
+	if !ss.ReadUint8LengthPrefixed((*cryptobyte.String)(&out.PublicName)) {
 		return out, ErrDecodeError
 	}
 	return out, nil
