@@ -190,10 +190,10 @@ func TestDialer(t *testing.T) {
 				Path:   "/dns-query",
 			},
 		},
-		PublicName:          "example.com",
-		MaxConcurrency:      4,
-		ConcurrencyInterval: 50 * time.Millisecond,
-		Timeout:             20 * time.Millisecond,
+		PublicName:       "example.com",
+		MaxConcurrency:   4,
+		ConcurrencyDelay: 50 * time.Millisecond,
+		Timeout:          20 * time.Millisecond,
 		DialFunc: func(ctx context.Context, network, addr string, tc *tls.Config) (string, error) {
 			t.Logf("Dial %q", addr)
 			var ech string

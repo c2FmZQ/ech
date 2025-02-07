@@ -47,9 +47,9 @@ type Dialer[T any] struct {
 	// be attempted in parallel by [Dialer.Dial] when the network address
 	// resolves to multiple targets. The default value is 3.
 	MaxConcurrency int
-	// ConcurrencyInterval is the amount of time to wait before initiating a
+	// ConcurrencyDelay is the amount of time to wait before initiating a
 	// new concurrent connection attempt. The default is 1s.
-	ConcurrencyInterval time.Duration
+	ConcurrencyDelay time.Duration
 	// Timeout is the amount of time to wait for a single connection to be
 	// established. The default value is 30s.
 	Timeout time.Duration
@@ -144,9 +144,9 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	interval := d.ConcurrencyInterval
-	if interval <= 0 {
-		interval = time.Second
+	delay := d.ConcurrencyDelay
+	if delay <= 0 {
+		delay = time.Second
 	}
 
 	var wg sync.WaitGroup
@@ -188,7 +188,7 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 				case <-ctx.Done():
 					break
 				case <-wakeChan:
-				case <-time.After(interval):
+				case <-time.After(delay):
 				}
 			}
 			first = false
