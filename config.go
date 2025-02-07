@@ -34,15 +34,7 @@ func ParseConfigList(b []byte) ([]ConfigSpec, error) {
 	}
 	var list []ConfigSpec
 	for !ss.Empty() {
-		if len(ss) < 4 {
-			return nil, ErrDecodeError
-		}
-		length := int(ss[2])<<8 | int(ss[3]) + 4
-		var config []byte
-		if !ss.ReadBytes(&config, length) {
-			return nil, ErrDecodeError
-		}
-		spec, err := Config(config).Spec()
+		spec, err := parseConfig(&ss)
 		if err != nil {
 			return nil, err
 		}
@@ -94,27 +86,33 @@ func NewConfig(id uint8, publicName []byte) (*ecdh.PrivateKey, Config, error) {
 
 // Spec returns the structured version of cfg.
 func (cfg Config) Spec() (ConfigSpec, error) {
-	var out ConfigSpec
 	s := cryptobyte.String(cfg)
+	return parseConfig(&s)
+}
+
+func parseConfig(s *cryptobyte.String) (ConfigSpec, error) {
+	var out ConfigSpec
 	if !s.ReadUint16(&out.Version) {
+		return out, ErrDecodeError
+	}
+	if out.Version != 0xfe0d {
 		return out, ErrDecodeError
 	}
 	var ss cryptobyte.String
 	if !s.ReadUint16LengthPrefixed(&ss) {
 		return out, ErrDecodeError
 	}
-	s = ss
-	if !s.ReadUint8(&out.ID) {
+	if !ss.ReadUint8(&out.ID) {
 		return out, ErrDecodeError
 	}
-	if !s.ReadUint16(&out.KEM) {
+	if !ss.ReadUint16(&out.KEM) {
 		return out, ErrDecodeError
 	}
-	if !s.ReadUint16LengthPrefixed((*cryptobyte.String)(&out.PublicKey)) {
+	if !ss.ReadUint16LengthPrefixed((*cryptobyte.String)(&out.PublicKey)) {
 		return out, ErrDecodeError
 	}
 	var cs cryptobyte.String
-	if !s.ReadUint16LengthPrefixed(&cs) {
+	if !ss.ReadUint16LengthPrefixed(&cs) {
 		return out, ErrDecodeError
 	}
 	for !cs.Empty() {
@@ -127,10 +125,10 @@ func (cfg Config) Spec() (ConfigSpec, error) {
 		}
 		out.CipherSuites = append(out.CipherSuites, suite)
 	}
-	if !s.ReadUint8(&out.MinimumNameLength) {
+	if !ss.ReadUint8(&out.MinimumNameLength) {
 		return out, ErrDecodeError
 	}
-	if !s.ReadUint8LengthPrefixed((*cryptobyte.String)(&out.PublicName)) {
+	if !ss.ReadUint8LengthPrefixed((*cryptobyte.String)(&out.PublicName)) {
 		return out, ErrDecodeError
 	}
 	return out, nil
