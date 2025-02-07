@@ -74,7 +74,7 @@ func NewConfig(id uint8, publicName []byte) (*ecdh.PrivateKey, Config, error) {
 				AEAD: 0x0001, // AES-128-GCM
 			},
 		},
-		MinimumNameLength: uint8(min(len(publicName)+16, 255)),
+		MaximumNameLength: uint8(min(len(publicName)+16, 255)),
 		PublicName:        publicName,
 	}
 	conf, err := c.Bytes()
@@ -124,7 +124,7 @@ func parseConfig(s *cryptobyte.String) (ConfigSpec, error) {
 		}
 		out.CipherSuites = append(out.CipherSuites, suite)
 	}
-	if !ss.ReadUint8(&out.MinimumNameLength) {
+	if !ss.ReadUint8(&out.MaximumNameLength) {
 		return out, ErrDecodeError
 	}
 	if !ss.ReadUint8LengthPrefixed((*cryptobyte.String)(&out.PublicName)) {
@@ -141,7 +141,7 @@ type ConfigSpec struct {
 	KEM               uint16
 	PublicKey         []byte
 	CipherSuites      []CipherSuite
-	MinimumNameLength uint8
+	MaximumNameLength uint8
 	PublicName        []byte
 }
 
