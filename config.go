@@ -9,12 +9,12 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 )
 
-// Config is a serialized ECH Config.
+// Config is a serialized Encrypted Client Hello (ECH) Config.
 type Config []byte
 
 type Key = tls.EncryptedClientHelloKey
 
-// Config returns a serialized ECH ConfigList.
+// Config returns a serialized Encrypted Client Hello (ECH) Config List.
 func ConfigList(configs []Config) ([]byte, error) {
 	b := cryptobyte.NewBuilder(nil)
 	b.AddUint16LengthPrefixed(func(c *cryptobyte.Builder) {
@@ -25,9 +25,9 @@ func ConfigList(configs []Config) ([]byte, error) {
 	return b.Bytes()
 }
 
-// ParseConfigList parses a serialized ECH ConfigList.
-func ParseConfigList(b []byte) ([]ConfigSpec, error) {
-	s := cryptobyte.String(b)
+// ParseConfigList parses a serialized Encrypted Client Hello (ECH) Config List.
+func ParseConfigList(configList []byte) ([]ConfigSpec, error) {
+	s := cryptobyte.String(configList)
 	var ss cryptobyte.String
 	if !s.ReadUint16LengthPrefixed(&ss) {
 		return nil, ErrDecodeError
@@ -43,7 +43,8 @@ func ParseConfigList(b []byte) ([]ConfigSpec, error) {
 	return list, nil
 }
 
-// NewConfig generates an ECH Config and a private key. It currently supports:
+// NewConfig generates an Encrypted Client Hello (ECH) Config and a private key.
+// It currently supports:
 //   - DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305.
 //   - DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, AES-256-GCM.
 //   - DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, AES-128-GCM.
@@ -133,8 +134,8 @@ func parseConfig(s *cryptobyte.String) (ConfigSpec, error) {
 	return out, nil
 }
 
-// ConfigSpec represents an ECH Config. It is specified in Section 4 of
-// https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/
+// ConfigSpec represents an Encrypted Client Hello (ECH) Config. It is specified
+// in Section 4 of https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/
 type ConfigSpec struct {
 	Version           uint16
 	ID                uint8
@@ -150,7 +151,8 @@ type CipherSuite struct {
 	AEAD uint16
 }
 
-// Bytes returns the serialized version of the ECH Config.
+// Bytes returns the serialized version of the Encrypted Client Hello (ECH)
+// Config.
 func (c ConfigSpec) Bytes() (Config, error) {
 	if l := len(c.PublicName); l == 0 || l > 255 {
 		return nil, errors.New("invalid public name length")

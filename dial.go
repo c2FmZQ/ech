@@ -13,8 +13,12 @@ import (
 )
 
 // Dial connects to the given network and address. Name resolution is done with
-// [DefaultResolver] and EncryptedClientHelloConfigList is set automatically if
-// the hostname has a HTTPS DNS record with ech.
+// [DefaultResolver]. It uses HTTPS DNS records to retrieve the server's
+// Encrypted Client Hello (ECH) Config List and uses it automatically if found.
+//
+// If the name resolution returns multiple IP addresses, Dial iterates over them
+// until a connection is successfully established. See [Dialer] for finer
+// control.
 func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn, error) {
 	return NewDialer().Dial(ctx, network, addr, tc)
 }
@@ -27,25 +31,24 @@ func NewDialer() *Dialer[*tls.Conn] {
 }
 
 // Dialer contains options for connecting to an address using Encrypted Client
-// Hello. It retrieves the ECH config list automatically from DNS HTTP records,
-// or from the remote server itself.
+// Hello. It retrieves the Encrypted Client Hello (ECH) Config List
+// automatically from DNS HTTP records, or from the remote server itself.
 type Dialer[T any] struct {
 	// RequireECH indicates that Encrypted Client Hello must be available
-	// and successfully negotiated for [Dialer.Dial] to return successfully.
+	// and successfully negotiated for Dial to return successfully.
 	RequireECH bool
 	// Resolver specifies the resolver to use for DNS lookups. If nil,
-	// [DefaultResolver] is used.
+	// DefaultResolver is used.
 	Resolver *Resolver
-	// PublicName is used to fetch the ECH config list from the server when
-	// the config list isn't specified in the [tls.Config] or in DNS. In
-	// that case, [Dialer.Dial] generates a fake (but valid) config list
-	// with this PublicName and use it to establish a TLS connection with
-	// the server, which should return the real config list in
-	// RetryConfigList.
+	// PublicName is used to fetch the ECH Config List from the server when
+	// the Config List isn't specified in the tls.Config or in DNS. In
+	// that case, Dial generates a fake (but valid) Config List with this
+	// PublicName and use it to establish a TLS connection with the server,
+	// which should return the real Config List in RetryConfigList.
 	PublicName string
 	// MaxConcurrency specifies the maximum number of connections that can
-	// be attempted in parallel by [Dialer.Dial] when the network address
-	// resolves to multiple targets. The default value is 3.
+	// be attempted in parallel by Dial when the network address resolves to
+	// multiple targets. The default value is 3.
 	MaxConcurrency int
 	// ConcurrencyDelay is the amount of time to wait before initiating a
 	// new concurrent connection attempt. The default is 1s.
@@ -54,12 +57,16 @@ type Dialer[T any] struct {
 	// established. The default value is 30s.
 	Timeout time.Duration
 	// DialFunc must be set to a function that will be used to connect to
-	// a network address. [NewDialer] automatically sets this value.
+	// a network address. NewDialer automatically sets this value.
 	DialFunc func(ctx context.Context, network, addr string, tc *tls.Config) (T, error)
 }
 
-// Dial connects to the given network and address. EncryptedClientHelloConfigList
-// is set automatically if the hostname has a HTTPS DNS record with ech.
+// Dial connects to the given network and address. It uses HTTPS DNS records to
+// retrieve the server's Encrypted Client Hello (ECH) Config List and uses it
+// automatically if found.
+//
+// If the name resolution returns multiple IP addresses, Dial iterates over them
+// until a connection is successfully established. See [Dialer] for finer control.
 func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Config) (T, error) {
 	var nilConn T
 	if d.DialFunc == nil {

@@ -115,12 +115,12 @@ func (r ResolveResult) Targets(network string, defaultPort int) iter.Seq[Target]
 	}
 }
 
-// Resolve is an alias for [Resolver.Resolve] with the Cloudflare Resolver.
+// Resolve is an alias for [Resolver.Resolve] with [DefaultResolver].
 func Resolve(ctx context.Context, name string) (ResolveResult, error) {
 	return DefaultResolver.Resolve(ctx, name)
 }
 
-// DefaultResolver is used by [Dial] and quic.Dial.
+// DefaultResolver is used by [Resolve], [Dial] and [github.com/c2FmZQ/ech/quic.Dial].
 var DefaultResolver = CloudflareResolver()
 
 // CloudflareResolver uses Cloudflare's DNS-over-HTTPS service.
