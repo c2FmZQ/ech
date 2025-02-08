@@ -58,8 +58,12 @@
 //
 // ECH Configs and ECH ConfigLists are created with [ech.NewConfig] and [ech.ConfigList].
 //
-// Clients can use [Resolve] and/or [Dial] to securely connect to services that publish
-// their ECH config lists in DNS records.
+// Clients can use [ech.Resolve] and/or [ech.Dial] to securely connect to services.
+// They use RFC 8484 DNS-over-HTTPS (DoH) and RFC 9460 HTTPS Resource Records, along
+// with traditional A, AAAA, CNAME records for name resolution. If a HTTPS record
+// contains an ECH config list, it can be used automatically. [ech.Dial] also supports
+// concurrent connection attempts to gracefully handle slow or unreachable addresses.
+// See [ech.Dialer] for more details.
 //
 // The example directory has working client and server examples.
 package ech

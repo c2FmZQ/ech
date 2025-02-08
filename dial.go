@@ -17,8 +17,17 @@ import (
 // Encrypted Client Hello (ECH) Config List and uses it automatically if found.
 //
 // If the name resolution returns multiple IP addresses, Dial iterates over them
-// until a connection is successfully established. See [Dialer] for finer
-// control.
+// until a connection is successfully established.
+//
+// Dial is equivalent to:
+//
+//	NewDialer().Dial(...)
+//
+// For finer control, instantiate a [Dialer] first.  Then, call Dial:
+//
+//	dialer := NewDialer()
+//	dialer.RequireECH = true
+//	conn, err := dialer.Dial(...)
 func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn, error) {
 	return NewDialer().Dial(ctx, network, addr, tc)
 }
@@ -32,10 +41,17 @@ func NewDialer() *Dialer[*tls.Conn] {
 
 // Dialer contains options for connecting to an address using Encrypted Client
 // Hello. It retrieves the Encrypted Client Hello (ECH) Config List
-// automatically from DNS HTTP records, or from the remote server itself.
+// automatically from DNS, or from the remote server itself.
+//
+// Dialer uses RFC 8484 DNS-over-HTTPS (DoH) and RFC 9460 HTTPS Resource Records, along
+// with traditional A, AAAA, CNAME records for name resolution. If a HTTPS record
+// contains an ECH config list, it can be used automatically. [Dialer.Dial] also supports
+// concurrent connection attempts to gracefully handle slow or unreachable addresses.
 type Dialer[T any] struct {
 	// RequireECH indicates that Encrypted Client Hello must be available
 	// and successfully negotiated for Dial to return successfully.
+	// By default, when RequireECH is false, Dial falls back to regular
+	// plaintext Client Hello when a Config List isn't found.
 	RequireECH bool
 	// Resolver specifies the resolver to use for DNS lookups. If nil,
 	// DefaultResolver is used.
