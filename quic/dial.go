@@ -9,9 +9,13 @@ import (
 	"github.com/quic-go/quic-go"
 )
 
-// Dial connects to the given network and address using [quic.DialAddr]. Name
-// resolution is done with [ech.DefaultResolver] and EncryptedClientHelloConfigList
-// will be set automatically if the hostname has a HTTPS DNS record with ech.
+// Dial connects to the given network and address. Name resolution is done with
+// [ech.DefaultResolver]. It uses HTTPS DNS records to retrieve the server's
+// Encrypted Client Hello (ECH) Config List and uses it automatically if found.
+//
+// If the name resolution returns multiple IP addresses, Dial iterates over them
+// until a connection is successfully established. See [ech.Dialer] for finer
+// control.
 func Dial(ctx context.Context, network, addr string, tc *tls.Config, qc *quic.Config) (quic.Connection, error) {
 	return NewDialer(qc).Dial(ctx, network, addr, tc)
 }
