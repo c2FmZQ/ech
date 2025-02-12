@@ -35,7 +35,23 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn,
 // NewDialer returns a [tls.Conn] Dialer.
 func NewDialer() *Dialer[*tls.Conn] {
 	return &Dialer[*tls.Conn]{
-		DialFunc: dialOne,
+		DialFunc: func(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn, error) {
+			tlsDialer := &tls.Dialer{
+				NetDialer: &net.Dialer{
+					Resolver: &net.Resolver{
+						Dial: func(context.Context, string, string) (net.Conn, error) {
+							return nil, errors.New("not using go resolver")
+						},
+					},
+				},
+				Config: tc,
+			}
+			conn, err := tlsDialer.DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			return conn.(*tls.Conn), nil
+		},
 	}
 }
 
@@ -187,7 +203,7 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 					continue
 				}
 				ctx, cancel := context.WithTimeout(ctx, timeout)
-				conn, err := d.DialFunc(ctx, network, target.Address.String(), tc)
+				conn, err := d.dialOne(ctx, network, target.Address.String(), tc)
 				cancel()
 				if err != nil {
 					sendErr(err)
@@ -240,31 +256,19 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 	}
 }
 
-func dialOne(ctx context.Context, network, addr string, tc *tls.Config) (*tls.Conn, error) {
-	netDialer := &net.Dialer{
-		Resolver: &net.Resolver{
-			Dial: func(context.Context, string, string) (net.Conn, error) {
-				return nil, errors.New("not using go resolver")
-			},
-		},
-	}
-
+func (d *Dialer[T]) dialOne(ctx context.Context, network, addr string, tc *tls.Config) (T, error) {
+	var nilConn T
 	var retried bool
 retry:
-	conn, err := netDialer.DialContext(ctx, network, addr)
+	conn, err := d.DialFunc(ctx, network, addr, tc)
 	if err != nil {
-		return nil, err
-	}
-	tlsConn := tls.Client(conn, tc)
-	if err := tlsConn.HandshakeContext(ctx); err != nil {
-		conn.Close()
 		var echErr *tls.ECHRejectionError
 		if errors.As(err, &echErr) && len(echErr.RetryConfigList) > 0 && !retried {
 			tc.EncryptedClientHelloConfigList = echErr.RetryConfigList
 			retried = true
 			goto retry
 		}
-		return nil, err
+		return nilConn, err
 	}
-	return tlsConn, nil
+	return conn, nil
 }
