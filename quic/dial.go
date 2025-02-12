@@ -3,7 +3,6 @@ package quic
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 
 	"github.com/c2FmZQ/ech"
 	"github.com/quic-go/quic-go"
@@ -24,19 +23,7 @@ func Dial(ctx context.Context, network, addr string, tc *tls.Config, qc *quic.Co
 func NewDialer(qc *quic.Config) *ech.Dialer[quic.Connection] {
 	return &ech.Dialer[quic.Connection]{
 		DialFunc: func(ctx context.Context, network, addr string, tc *tls.Config) (quic.Connection, error) {
-			var retried bool
-		retry:
-			conn, err := quic.DialAddr(ctx, addr, tc, qc)
-			if err != nil {
-				var echErr *tls.ECHRejectionError
-				if errors.As(err, &echErr) && len(echErr.RetryConfigList) > 0 && !retried {
-					tc.EncryptedClientHelloConfigList = echErr.RetryConfigList
-					retried = true
-					goto retry
-				}
-				return nil, err
-			}
-			return conn, nil
+			return quic.DialAddr(ctx, addr, tc, qc)
 		},
 	}
 }
