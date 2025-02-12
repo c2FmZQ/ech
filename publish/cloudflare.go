@@ -48,7 +48,8 @@ type TargetResult struct {
 	Error error
 }
 
-// Err converts the value to an error.
+// Err converts the value to an error. It returns nil when Code is either
+// [StatusUpdated] or [StatusNoChange].
 func (r TargetResult) Err() error {
 	switch r.Code {
 	case StatusUpdated, StatusNoChange:
@@ -77,10 +78,14 @@ func (r TargetResult) String() string {
 	}
 }
 
+// ECHPublisher is the interface for publishing ECH Config Lists to DNS.
 type ECHPublisher interface {
+	// PublishECH updates the target DNS records with a new config list.
 	PublishECH(ctx context.Context, records []Target, configList []byte) []TargetResult
 }
 
+// NewCloudflarePublisher returns a new CloudflarePublisher. The API token must
+// have the DNS:Read and DNS:Edit permissions on the target zone(s).
 func NewCloudflarePublisher(apiToken string) *CloudflarePublisher {
 	cf := &CloudflarePublisher{
 		baseURL:  cloudflareBaseURL,
@@ -94,6 +99,8 @@ func NewCloudflarePublisher(apiToken string) *CloudflarePublisher {
 
 var _ ECHPublisher = (*CloudflarePublisher)(nil)
 
+// CloudflarePublisher publishes ECH Config Lists to DNS using the cloudflare
+// API.
 type CloudflarePublisher struct {
 	baseURL  url.URL
 	client   *retryablehttp.Client
@@ -137,6 +144,7 @@ func (e cfErrors) Error() string {
 	return errors.Join(errs...).Error()
 }
 
+// PublishECH updates the target DNS records with a new config list.
 func (cf *CloudflarePublisher) PublishECH(ctx context.Context, records []Target, configList []byte) []TargetResult {
 	zones := make(map[string]bool)
 	data := make(map[zoneName]idData)
