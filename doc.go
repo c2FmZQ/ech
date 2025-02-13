@@ -1,5 +1,8 @@
 // Package ech implements a library to support Encrypted Client Hello with a Split
-// Mode Topology, as described in https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/
+// Mode Topology, along with secure client-side name resolution and network
+// connections.
+//
+// Split Mode Topology is defined in https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/#section-3.1
 //
 //	Client ----> Client-Facing Server ----> Backend Servers
 //	             (public.example.com)       (private1.example.com)
