@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/c2FmZQ/ech"
 	"github.com/c2FmZQ/ech/dns"
@@ -147,4 +149,56 @@ func TestDial(t *testing.T) {
 			t.Errorf("Got %q, want %q", got, want)
 		}
 	}
+}
+
+func Example() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	conn, err := Dial(ctx, "udp", "private.example.com", &tls.Config{}, &quic.Config{})
+	if err != nil {
+		log.Fatalf("Dial: %v", err)
+	}
+	stream, err := conn.OpenStream()
+	if err != nil {
+		log.Fatalf("conn.OpenStream: %v", err)
+	}
+	defer stream.Close()
+	fmt.Fprintln(stream, "Hello!")
+}
+
+func ExampleDial() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	conn, err := Dial(ctx, "udp", "private.example.com", &tls.Config{}, &quic.Config{})
+	if err != nil {
+		log.Fatalf("Dial: %v", err)
+	}
+	stream, err := conn.OpenStream()
+	if err != nil {
+		log.Fatalf("conn.OpenStream: %v", err)
+	}
+	defer stream.Close()
+	fmt.Fprintln(stream, "Hello!")
+}
+
+func ExampleNewDialer() {
+	dialer := NewDialer(&quic.Config{})
+	dialer.RequireECH = true
+	dialer.PublicName = "public.example.com"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	conn, err := dialer.Dial(ctx, "udp", "private.example.com", &tls.Config{})
+	if err != nil {
+		log.Fatalf("Dial: %v", err)
+	}
+	stream, err := conn.OpenStream()
+	if err != nil {
+		log.Fatalf("conn.OpenStream: %v", err)
+	}
+	defer stream.Close()
+	fmt.Fprintln(stream, "Hello!")
 }
