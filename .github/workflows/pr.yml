@@ -24,17 +24,17 @@ jobs:
         go-version: ${{steps.goversion.outputs.goversion}}
     - name: Build
       run: |
-        for d in (find . -name go.mod); do
+        for d in $(find . -name go.mod); do
           (cd $(dirname $d) && go build ./...)
         done
     - name: Run go vet
       run: |
-        for d in (find . -name go.mod); do
+        for d in $(find . -name go.mod); do
           (cd $(dirname $d) && go vet ./...)
         done
     - name: Run go fmt
       run: |
-        for d in (find . -name go.mod); do
+        for d in $(find . -name go.mod); do
           out="$(cd $(dirname $d) && go fmt ./...)"
           if [[ -n "${out}" ]]; then
             echo "Need to run `go fmt` on:"
@@ -44,6 +44,6 @@ jobs:
         done
     - name: Run go tests
       run: |
-        for d in (find . -name go.mod); do
+        for d in $(find . -name go.mod); do
           (cd $(dirname $d) && go test -failfast ./...)
         done
