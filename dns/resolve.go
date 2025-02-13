@@ -5,19 +5,22 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"strconv"
+
+	"github.com/hashicorp/go-retryablehttp"
 )
 
 // DoH sends a RFC 8484 DoH (DNS-over-HTTPS) request to URL.
 func DoH(ctx context.Context, msg *Message, URL string) (*Message, error) {
-	req, err := http.NewRequestWithContext(ctx, "POST", URL, bytes.NewReader(msg.Bytes()))
+	req, err := retryablehttp.NewRequestWithContext(ctx, "POST", URL, bytes.NewReader(msg.Bytes()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("accept", "application/dns-message")
 	req.Header.Set("content-type", "application/dns-message")
-	resp, err := http.DefaultClient.Do(req)
+	client := retryablehttp.NewClient()
+	client.Logger = nil
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
