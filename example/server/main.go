@@ -1,3 +1,6 @@
+// This is an example of a Client-Facing Server using ech.Conn to handle the
+// TLS Encrypted Client Hello (ECH) message and routing the connection using the
+// encrypting Server Name Indication (SNI).
 package main
 
 import (

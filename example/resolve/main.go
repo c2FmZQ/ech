@@ -1,3 +1,5 @@
+// This is an example showing how to use [ech.Resolve] to securely and privately
+// find the Encrypted Client Hello (ECH) Config List for a DNS name.
 package main
 
 import (

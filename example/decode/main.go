@@ -1,3 +1,5 @@
+// This is an example showing how to decode an Encrypted Client Hello (ECH)
+// Config List.
 package main
 
 import (

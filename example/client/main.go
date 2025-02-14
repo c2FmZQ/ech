@@ -1,3 +1,5 @@
+// This is an example of a client using [ech.Dial] to connect to a TLS server
+// using Encrypted Client Hello (ECH).
 package main
 
 import (

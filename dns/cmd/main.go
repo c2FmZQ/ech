@@ -1,3 +1,5 @@
+// This is an example showing how to send a DoH request using [dns.DoH] and
+// [dns.Message].
 package main
 
 import (
