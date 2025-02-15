@@ -96,7 +96,8 @@ func NewConn(ctx context.Context, conn net.Conn, options ...Option) (outConn *Co
 // Conn manages Encrypted Client Hello in TLS connections, as defined in
 // https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/ .
 type Conn struct {
-	net.Conn
+	net.Conn // The underlying connection
+
 	outer *clientHello
 	inner *clientHello
 
