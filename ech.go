@@ -97,6 +97,7 @@ func NewConn(ctx context.Context, conn net.Conn, options ...Option) (outConn *Co
 // https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/ .
 type Conn struct {
 	net.Conn // The underlying connection
+
 	outer *clientHello
 	inner *clientHello
 
