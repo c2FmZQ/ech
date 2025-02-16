@@ -11,8 +11,7 @@
 // A [ech.Conn] handles the Client-Facing Server part. It transparently inspects
 // the TLS handshake and decrypts/decodes Encrypted Client Hello messages. The
 // decoded ServerName and/or ALPN protocols can then be used to route the TLS
-// connection to the correct backend server. [ech.Conn] does not terminate the
-// TLS connection.
+// connection to the correct backend server which terminates the TLS connection.
 //
 // A regular [tls.Server] Conn with EncryptedClientHelloKeys set in its
 // [tls.Config] is required to handle the ECH Config PublicName. The other backend
