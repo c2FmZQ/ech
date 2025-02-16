@@ -23,7 +23,7 @@ flowchart LR
   prx-->be2
 ```
 
-The ECH library handles the Client-Facing Server part. A `ech.Conn` transparently inspects the TLS handshake and decrypts/decodes Encrypted Client Hello messages. The decoded ServerName and/or ALPN protocols can then be used to route the TLS connection to the right backend server.
+The ECH library handles the Client-Facing Server part. A `ech.Conn` transparently inspects the TLS handshake and decrypts/decodes Encrypted Client Hello messages. The decoded ServerName and/or ALPN protocols can then be used to route the TLS connection to the right backend server which terminates the TLS connection.
 
 ECH Configs and ECH ConfigLists are created with `ech.NewConfig` and `ech.ConfigList`.
 
