@@ -307,6 +307,7 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 			Class: 1,
 		}},
 	}
+	qq.AddPadding()
 
 	result, err := dns.DoH(ctx, qq, r.baseURL.String())
 	if err != nil {

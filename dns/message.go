@@ -49,6 +49,7 @@ var (
 		"NSEC3":      50,    // RFC 5155
 		"NSEC3PARAM": 51,    // RFC 5155
 		"OPENPGPKEY": 61,    // RFC 7929
+		"OPT":        41,    // RFC 6891
 		"PTR":        12,    // RFC 1035
 		"RP":         17,    // RFC 1183
 		"RRSIG":      46,    // RFC 4034
@@ -154,6 +155,12 @@ type DNSKEY struct {
 	PublicKey []byte `json:"publickey"`
 }
 
+// Option represents a OPT pseudo Resource Record.
+type Option struct {
+	Code uint16 `json:"code"`
+	Data []byte `json:"data"`
+}
+
 // DS represents a DS Resource Record.
 type DS struct {
 	KeyTag     uint16 `json:"keytag"`
@@ -231,6 +238,22 @@ type URI struct {
 	Target   string `json:"target"`
 }
 
+// AddPadding adds padding to a message to make its size a multiple of 128.
+func (m *Message) AddPadding() {
+	padSize := 128 - (len(m.Bytes())+15)%128
+	if padSize == 128 {
+		padSize = 0
+	}
+	m.Additional = append(m.Additional, RR{
+		Type:  41,   // OPT
+		Class: 4096, // Max payload size
+		Data: []Option{{
+			Code: 12, // Padding
+			Data: make([]byte, padSize),
+		}},
+	})
+}
+
 // Bytes returns the serialized message. It includes only the header and the
 // question section.
 func (m Message) Bytes() []byte {
@@ -262,10 +285,12 @@ func (m Message) Bytes() []byte {
 
 func (rr RR) Bytes() []byte {
 	s := cryptobyte.NewBuilder(nil)
-	for _, p := range strings.Split(rr.Name, ".") {
-		s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
-			s.AddBytes([]byte(p))
-		})
+	if len(rr.Name) > 0 {
+		for _, p := range strings.Split(rr.Name, ".") {
+			s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
+				s.AddBytes([]byte(p))
+			})
+		}
 	}
 	s.AddUint8(0)
 	s.AddUint16(rr.Type)
@@ -283,6 +308,13 @@ func (rr RR) Bytes() []byte {
 					})
 				}
 				s.AddUint8(0)
+			}
+		case []Option:
+			for _, opt := range data {
+				s.AddUint16(opt.Code)
+				s.AddUint16LengthPrefixed(func(s *cryptobyte.Builder) {
+					s.AddBytes(opt.Data)
+				})
 			}
 		case HTTPS:
 			s.AddUint16(data.Priority)
@@ -538,6 +570,12 @@ func (d decoder) rr(s *cryptobyte.String) (RR, error) {
 		rr.Data = v
 	case 37: // CERT
 		v, err := d.cert(data)
+		if err != nil {
+			return rr, err
+		}
+		rr.Data = v
+	case 41: // OPT
+		v, err := d.opt(data)
 		if err != nil {
 			return rr, err
 		}
@@ -830,6 +868,22 @@ func (d decoder) cert(b []byte) (CERT, error) {
 		return result, ErrDecodeError
 	}
 	result.Certificate = s
+	return result, nil
+}
+
+func (d decoder) opt(b []byte) ([]Option, error) {
+	var result []Option
+	s := cryptobyte.String(b)
+	for !s.Empty() {
+		var opt Option
+		if !s.ReadUint16(&opt.Code) {
+			return result, ErrDecodeError
+		}
+		if !s.ReadUint16LengthPrefixed((*cryptobyte.String)(&opt.Data)) {
+			return result, ErrDecodeError
+		}
+		result = append(result, opt)
+	}
 	return result, nil
 }
 

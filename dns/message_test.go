@@ -511,3 +511,24 @@ func TestMessageNXDomain(t *testing.T) {
 		t.Errorf("Got %#v, want %#v", got, want)
 	}
 }
+
+func TestPadding(t *testing.T) {
+	m := Message{
+		RD: 1,
+		Question: []Question{{
+			Name:  "foo.example.com",
+			Type:  0x1,
+			Class: 0x1,
+		}},
+	}
+	m.AddPadding()
+	b := m.Bytes()
+	if n := len(b) % 128; n != 0 {
+		t.Errorf("n%%128 = %d, want 0", n)
+	}
+	m2, err := DecodeMessage(b)
+	if err != nil {
+		t.Fatalf("DecodeMessage: %v", err)
+	}
+	t.Logf("m2: %#v", m2)
+}
