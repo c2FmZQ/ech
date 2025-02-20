@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"slices"
 	"strings"
 	"unsafe"
 
@@ -240,18 +241,27 @@ type URI struct {
 
 // AddPadding adds padding to a message to make its size a multiple of 128.
 func (m *Message) AddPadding() {
-	padSize := 128 - (len(m.Bytes())+15)%128
-	if padSize == 128 {
-		padSize = 0
-	}
-	m.Additional = append(m.Additional, RR{
-		Type:  41,   // OPT
-		Class: 4096, // Max payload size
-		Data: []Option{{
-			Code: 12, // Padding
-			Data: make([]byte, padSize),
-		}},
+	p := slices.IndexFunc(m.Additional, func(rr RR) bool {
+		return rr.Type == 41 // OPT
 	})
+	if p < 0 {
+		m.Additional = append(m.Additional, RR{
+			Type:  41,   // OPT
+			Class: 4096, // Max payload size
+			Data:  []Option{},
+		})
+		p = len(m.Additional) - 1
+	}
+	opts := m.Additional[p].Data.([]Option)
+	opts = slices.DeleteFunc(opts, func(opt Option) bool {
+		return opt.Code == 12 // Padding
+	})
+	padSize := (128 - (len(m.Bytes())+4)%128) % 128
+	opts = append(opts, Option{
+		Code: 12, // Padding
+		Data: make([]byte, padSize),
+	})
+	m.Additional[p].Data = opts
 }
 
 // Bytes returns the serialized message. It includes only the header and the
