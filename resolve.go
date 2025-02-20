@@ -24,7 +24,7 @@ var (
 	ErrNotImplemented    = errors.New("not implemented")
 	ErrQueryRefused      = errors.New("query refused")
 
-	rcode = map[uint8]error{
+	rcode = map[uint16]error{
 		1: ErrFormatError,
 		2: ErrServerFailure,
 		3: ErrNonExistentDomain,
@@ -314,7 +314,7 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 		return nil, err
 	}
 
-	if rc := result.RCode; rc != 0 {
+	if rc := result.ResponseCode(); rc != 0 {
 		if err := rcode[rc]; err != nil {
 			return nil, fmt.Errorf("%s (%s): %w (%d)", name, typ, rcode[rc], rc)
 		}

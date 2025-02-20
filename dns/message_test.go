@@ -1,8 +1,10 @@
 package dns
 
 import (
+	"fmt"
 	"net"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -513,22 +515,40 @@ func TestMessageNXDomain(t *testing.T) {
 }
 
 func TestPadding(t *testing.T) {
-	m := Message{
-		RD: 1,
-		Question: []Question{{
-			Name:  "foo.example.com",
-			Type:  0x1,
-			Class: 0x1,
-		}},
+	for i := 1; i < 64; i++ {
+		m := Message{
+			RD: 1,
+			Question: []Question{{
+				Name:  fmt.Sprintf("%s.%s.example.com", strings.Repeat("a", i), strings.Repeat("b", i)),
+				Type:  0x1,
+				Class: 0x1,
+			}},
+		}
+		run := func(t *testing.T) {
+			b := m.Bytes()
+			if n := len(b) % 128; n != 0 {
+				t.Errorf("n%%128 = %d, want 0", n)
+			}
+			m2, err := DecodeMessage(b)
+			if err != nil {
+				t.Fatalf("DecodeMessage: %v", err)
+			}
+			if !reflect.DeepEqual(m, *m2) {
+				t.Fatalf("DecodeMessage = %#v, want %#v", m2, m)
+			}
+		}
+		m.AddPadding()
+		t.Run(fmt.Sprintf("Empty-%d", i), run)
+		m.AddPadding()
+		t.Run(fmt.Sprintf("Same-%d", i), run)
+		opts := m.Additional[0].Data.([]Option)
+		opts[0].Data = nil
+		m.Additional[0].Data = opts
+		m.AddPadding()
+		t.Run(fmt.Sprintf("NewPadding-%d", i), run)
+		opts = nil
+		m.Additional[0].Data = opts
+		m.AddPadding()
+		t.Run(fmt.Sprintf("NoPadding-%d", i), run)
 	}
-	m.AddPadding()
-	b := m.Bytes()
-	if n := len(b) % 128; n != 0 {
-		t.Errorf("n%%128 = %d, want 0", n)
-	}
-	m2, err := DecodeMessage(b)
-	if err != nil {
-		t.Fatalf("DecodeMessage: %v", err)
-	}
-	t.Logf("m2: %#v", m2)
 }

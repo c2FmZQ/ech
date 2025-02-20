@@ -238,6 +238,19 @@ type URI struct {
 	Target   string `json:"target"`
 }
 
+// ResponseCode returns the Extended RCODE.
+func (m Message) ResponseCode() uint16 {
+	rc := uint16(m.RCode)
+	if p := slices.IndexFunc(m.Additional, func(rr RR) bool {
+		return rr.Type == 41 // OPT
+	}); p >= 0 {
+		// MSB is the upper 8 bits of the 12-bit extended rcode.
+		// https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.3
+		rc |= uint16((m.Additional[p].TTL & 0xff000000) >> 20)
+	}
+	return rc
+}
+
 // AddPadding adds padding to a message to make its size a multiple of 128.
 func (m *Message) AddPadding() {
 	p := slices.IndexFunc(m.Additional, func(rr RR) bool {
