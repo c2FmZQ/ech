@@ -240,7 +240,7 @@ type URI struct {
 
 // ResponseCode returns the Extended RCODE.
 func (m Message) ResponseCode() uint16 {
-	rc := uint16(m.RCode)
+	rc := uint16(m.RCode & 0x0f)
 	if p := slices.IndexFunc(m.Additional, func(rr RR) bool {
 		return rr.Type == 41 // OPT
 	}); p >= 0 {
@@ -257,12 +257,12 @@ func (m *Message) AddPadding() {
 		return rr.Type == 41 // OPT
 	})
 	if p < 0 {
+		p = len(m.Additional)
 		m.Additional = append(m.Additional, RR{
 			Type:  41,   // OPT
 			Class: 4096, // Max payload size
 			Data:  []Option{},
 		})
-		p = len(m.Additional) - 1
 	}
 	opts := m.Additional[p].Data.([]Option)
 	opts = slices.DeleteFunc(opts, func(opt Option) bool {
