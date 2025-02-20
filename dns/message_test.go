@@ -552,3 +552,19 @@ func TestPadding(t *testing.T) {
 		t.Run(fmt.Sprintf("NoPadding-%d", i), run)
 	}
 }
+
+func TestResponseCode(t *testing.T) {
+	m := Message{
+		RCode: 1,
+	}
+	if got, want := m.ResponseCode(), uint16(1); got != want {
+		t.Errorf("ResponseCode() = %d, want %d", got, want)
+	}
+	m.Additional = []RR{{
+		Type: 41,
+		TTL:  0x01ffffff,
+	}}
+	if got, want := m.ResponseCode(), uint16(17); got != want {
+		t.Errorf("ResponseCode() = %d, want %d", got, want)
+	}
+}
