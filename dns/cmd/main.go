@@ -39,6 +39,7 @@ func main() {
 			Class: 1,
 		}},
 	}
+	qq.AddPadding()
 	result, err := dns.DoH(context.Background(), qq, url)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "dns.DoH: %v", err)
