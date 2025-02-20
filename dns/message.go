@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"slices"
 	"strings"
 	"unsafe"
 
@@ -154,6 +155,12 @@ type DNSKEY struct {
 	PublicKey []byte `json:"publickey"`
 }
 
+// Option represents a OPT pseudo Resource Record option.
+type Option struct {
+	Code uint16 `json:"code"`
+	Data []byte `json:"data"`
+}
+
 // DS represents a DS Resource Record.
 type DS struct {
 	KeyTag     uint16 `json:"keytag"`
@@ -231,6 +238,46 @@ type URI struct {
 	Target   string `json:"target"`
 }
 
+// ResponseCode returns the Extended RCODE.
+func (m Message) ResponseCode() uint16 {
+	rc := uint16(m.RCode & 0x0f)
+	if p := slices.IndexFunc(m.Additional, func(rr RR) bool {
+		return rr.Type == 41 // OPT
+	}); p >= 0 {
+		// MSB is the upper 8 bits of the 12-bit extended rcode.
+		// https://datatracker.ietf.org/doc/html/rfc6891#section-6.1.3
+		rc |= uint16((m.Additional[p].TTL & 0xff000000) >> 20)
+	}
+	return rc
+}
+
+// AddPadding adds padding to a message to make its size a multiple of 128.
+func (m *Message) AddPadding() {
+	p := slices.IndexFunc(m.Additional, func(rr RR) bool {
+		return rr.Type == 41 // OPT
+	})
+	if p < 0 {
+		p = len(m.Additional)
+		m.Additional = append(m.Additional, RR{
+			Type:  41,   // OPT
+			Class: 4096, // Max payload size
+			Data:  []Option{},
+		})
+	}
+	opts := m.Additional[p].Data.([]Option)
+	opts = slices.DeleteFunc(opts, func(opt Option) bool {
+		return opt.Code == 12 // Padding
+	})
+	m.Additional[p].Data = opts
+
+	padSize := (128 - (len(m.Bytes())+4)%128) % 128
+	opts = append(opts, Option{
+		Code: 12, // Padding
+		Data: make([]byte, padSize),
+	})
+	m.Additional[p].Data = opts
+}
+
 // Bytes returns the serialized message. It includes only the header and the
 // question section.
 func (m Message) Bytes() []byte {
@@ -262,10 +309,12 @@ func (m Message) Bytes() []byte {
 
 func (rr RR) Bytes() []byte {
 	s := cryptobyte.NewBuilder(nil)
-	for _, p := range strings.Split(rr.Name, ".") {
-		s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
-			s.AddBytes([]byte(p))
-		})
+	if len(rr.Name) > 0 {
+		for _, p := range strings.Split(rr.Name, ".") {
+			s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
+				s.AddBytes([]byte(p))
+			})
+		}
 	}
 	s.AddUint8(0)
 	s.AddUint16(rr.Type)
@@ -283,6 +332,13 @@ func (rr RR) Bytes() []byte {
 					})
 				}
 				s.AddUint8(0)
+			}
+		case []Option:
+			for _, opt := range data {
+				s.AddUint16(opt.Code)
+				s.AddUint16LengthPrefixed(func(s *cryptobyte.Builder) {
+					s.AddBytes(opt.Data)
+				})
 			}
 		case HTTPS:
 			s.AddUint16(data.Priority)
@@ -538,6 +594,12 @@ func (d decoder) rr(s *cryptobyte.String) (RR, error) {
 		rr.Data = v
 	case 37: // CERT
 		v, err := d.cert(data)
+		if err != nil {
+			return rr, err
+		}
+		rr.Data = v
+	case 41: // OPT
+		v, err := d.opt(data)
 		if err != nil {
 			return rr, err
 		}
@@ -830,6 +892,22 @@ func (d decoder) cert(b []byte) (CERT, error) {
 		return result, ErrDecodeError
 	}
 	result.Certificate = s
+	return result, nil
+}
+
+func (d decoder) opt(b []byte) ([]Option, error) {
+	var result []Option
+	s := cryptobyte.String(b)
+	for !s.Empty() {
+		var opt Option
+		if !s.ReadUint16(&opt.Code) {
+			return result, ErrDecodeError
+		}
+		if !s.ReadUint16LengthPrefixed((*cryptobyte.String)(&opt.Data)) {
+			return result, ErrDecodeError
+		}
+		result = append(result, opt)
+	}
 	return result, nil
 }
 
