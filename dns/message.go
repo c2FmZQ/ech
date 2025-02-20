@@ -50,7 +50,6 @@ var (
 		"NSEC3":      50,    // RFC 5155
 		"NSEC3PARAM": 51,    // RFC 5155
 		"OPENPGPKEY": 61,    // RFC 7929
-		"OPT":        41,    // RFC 6891
 		"PTR":        12,    // RFC 1035
 		"RP":         17,    // RFC 1183
 		"RRSIG":      46,    // RFC 4034
@@ -156,7 +155,7 @@ type DNSKEY struct {
 	PublicKey []byte `json:"publickey"`
 }
 
-// Option represents a OPT pseudo Resource Record.
+// Option represents a OPT pseudo Resource Record option.
 type Option struct {
 	Code uint16 `json:"code"`
 	Data []byte `json:"data"`
@@ -256,6 +255,8 @@ func (m *Message) AddPadding() {
 	opts = slices.DeleteFunc(opts, func(opt Option) bool {
 		return opt.Code == 12 // Padding
 	})
+	m.Additional[p].Data = opts
+
 	padSize := (128 - (len(m.Bytes())+4)%128) % 128
 	opts = append(opts, Option{
 		Code: 12, // Padding
