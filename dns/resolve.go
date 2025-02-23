@@ -18,6 +18,7 @@ func DoH(ctx context.Context, msg *Message, URL string) (*Message, error) {
 	}
 	req.Header.Set("accept", "application/dns-message")
 	req.Header.Set("content-type", "application/dns-message")
+	req.Header.Set("user-agent", "")
 	client := retryablehttp.NewClient()
 	client.Logger = nil
 	resp, err := client.Do(req)
