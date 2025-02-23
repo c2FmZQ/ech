@@ -1,3 +1,4 @@
+[![Tests](https://github.com/c2FmZQ/ech/actions/workflows/pr.yml/badge.svg?branch=main)](https://github.com/c2FmZQ/ech/actions/workflows/pr.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/c2FmZQ/ech.svg)](https://pkg.go.dev/github.com/c2FmZQ/ech)
 
 # Encrypted Client Hello with Split Mode Topology
