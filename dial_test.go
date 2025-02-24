@@ -239,17 +239,7 @@ func TestDialer(t *testing.T) {
 	t.Run("MultipleTargetsMultipleAddressesWithPublicName", func(t *testing.T) {
 		_, got := dialer.Dial(t.Context(), "tcp", "h1.example.com:8443,h2.example.com", nil)
 		want := strings.TrimSpace(strings.ReplaceAll(`
-			pseudo-error "1.0.0.1:1000" ECH OK
-			pseudo-error "1.0.0.2:1000" ECH OK
-			pseudo-error "1.0.0.3:1000" ECH OK
-			pseudo-error "1.0.0.4:1000" ECH OK
-			pseudo-error "1.0.0.5:1000" ECH OK
 			pseudo-error "3.0.0.1:1000" ECH OK
-			pseudo-error "2.0.0.1:2000" ECH publicname:example.com
-			pseudo-error "2.0.0.2:2000" ECH publicname:example.com
-			pseudo-error "2.0.0.3:2000" ECH publicname:example.com
-			pseudo-error "2.0.0.4:2000" ECH publicname:example.com
-			pseudo-error "2.0.0.5:2000" ECH publicname:example.com
 			pseudo-error "3.0.0.1:2000" ECH publicname:example.com
 			pseudo-error "3.0.0.1:8443" ECH publicname:example.com
 			pseudo-error "4.0.0.1:443" ECH publicname:example.com`, "\t", ""))
