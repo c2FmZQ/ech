@@ -96,14 +96,16 @@ func (r ResolveResult) Targets(network string, defaultPort int) iter.Seq[Target]
 					return
 				}
 			}
-			for _, a := range h.IPv4Hint {
-				if !add(a, port, h.ECH) {
-					return
+			if len(r.Address) == 0 {
+				for _, a := range h.IPv4Hint {
+					if !add(a, port, h.ECH) {
+						return
+					}
 				}
-			}
-			for _, a := range h.IPv6Hint {
-				if !add(a, port, h.ECH) {
-					return
+				for _, a := range h.IPv6Hint {
+					if !add(a, port, h.ECH) {
+						return
+					}
 				}
 			}
 		}
