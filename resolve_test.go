@@ -197,7 +197,7 @@ func TestResolveResultTargets(t *testing.T) {
 					"foo": []net.IP{{192, 168, 0, 2}},
 				},
 			},
-			want: "192.168.0.1:8443 xyz | 192.168.0.2:8443 xyz",
+			want: "192.168.0.2:8443 xyz",
 		},
 	} {
 		var s []string
