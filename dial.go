@@ -6,8 +6,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"io"
+	"iter"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,6 +20,9 @@ import (
 //
 // If the name resolution returns multiple IP addresses, Dial iterates over them
 // until a connection is successfully established.
+//
+// Multiple comma-separated addresses may be provided. Dial attempts to connect
+// to them in the order they are listed.
 //
 // Dial is equivalent to:
 //
@@ -99,6 +104,9 @@ type Dialer[T any] struct {
 //
 // If the name resolution returns multiple IP addresses, Dial iterates over them
 // until a connection is successfully established. See [Dialer] for finer control.
+//
+// Multiple comma-separated addresses may be provided. Dial attempts to connect
+// to them in the order they are listed.
 func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Config) (T, error) {
 	var nilConn T
 	if d.DialFunc == nil {
@@ -109,27 +117,49 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 	} else {
 		tc = tc.Clone()
 	}
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		host = addr
-		port = "443"
-	}
 	resolver := d.Resolver
 	if resolver == nil {
 		resolver = DefaultResolver
 	}
-	result, err := resolver.Resolve(ctx, host)
-	if err != nil {
-		return nilConn, err
+	type dialTarget struct {
+		host     string
+		resolved Target
+		err      error
 	}
-	iport, err := strconv.Atoi(port)
-	if err != nil {
-		return nilConn, err
-	}
-	if tc.ServerName == "" {
-		tc.ServerName = host
-	}
-	targetChan := make(chan Target)
+	targets := iter.Seq[dialTarget](func(yield func(dialTarget) bool) {
+		for _, a := range strings.Split(addr, ",") {
+			a := strings.TrimSpace(a)
+			host, port, err := net.SplitHostPort(a)
+			if err != nil {
+				host = a
+				port = "443"
+			}
+			result, err := resolver.Resolve(ctx, host)
+			if err != nil {
+				if !yield(dialTarget{err: err}) {
+					return
+				}
+				continue
+			}
+			iport, err := strconv.Atoi(port)
+			if err != nil {
+				if !yield(dialTarget{err: err}) {
+					return
+				}
+				continue
+			}
+			for target := range result.Targets(network, iport) {
+				if !yield(dialTarget{
+					host:     host,
+					resolved: target,
+				}) {
+					return
+				}
+			}
+		}
+	})
+
+	targetChan := make(chan dialTarget)
 	connChan := make(chan T)
 	errChan := make(chan error)
 	wakeChan := make(chan struct{})
@@ -194,16 +224,23 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 		go func() {
 			defer wg.Done()
 			for target := range targetChan {
+				if target.err != nil {
+					sendErr(target.err)
+					continue
+				}
 				tc := tc.Clone()
-				if needECH && target.ECH != nil {
-					tc.EncryptedClientHelloConfigList = target.ECH
+				if tc.ServerName == "" {
+					tc.ServerName = target.host
+				}
+				if needECH && target.resolved.ECH != nil {
+					tc.EncryptedClientHelloConfigList = target.resolved.ECH
 				}
 				if d.RequireECH && tc.EncryptedClientHelloConfigList == nil {
 					sendErr(errors.New("unable to get ECH config list"))
 					continue
 				}
 				ctx, cancel := context.WithTimeout(ctx, timeout)
-				conn, err := d.dialOne(ctx, network, target.Address.String(), tc)
+				conn, err := d.dialOne(ctx, network, target.resolved.Address.String(), tc)
 				cancel()
 				if err != nil {
 					sendErr(err)
@@ -221,7 +258,7 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 
 	go func() {
 		first := true
-		for target := range result.Targets(network, iport) {
+		for target := range targets {
 			if !first {
 				select {
 				case <-ctx.Done():

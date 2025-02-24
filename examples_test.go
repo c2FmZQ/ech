@@ -36,6 +36,32 @@ func ExampleDial() {
 	fmt.Fprintln(conn, "Hello!")
 }
 
+func ExampleDial_multiple() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	conn, err := Dial(ctx, "tcp", "private1.example.com,private2.example.com", &tls.Config{})
+	if err != nil {
+		log.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	fmt.Fprintln(conn, "Hello!")
+}
+
+func ExampleDial_multiple_ip_addresses() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	conn, err := Dial(ctx, "tcp", "192.168.0.1,192.168.0.2,192.168.0.3", &tls.Config{})
+	if err != nil {
+		log.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	fmt.Fprintln(conn, "Hello!")
+}
+
 func ExampleNewConn() {
 	ctx := context.Background()
 
