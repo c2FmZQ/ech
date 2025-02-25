@@ -360,14 +360,14 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 	v.mu.RLock()
 	exp, res := v.expiration, v.result
 	v.mu.RUnlock()
-	if timeNow().Before(exp) {
+	if !exp.IsZero() && timeNow().Before(exp) {
 		return res, nil
 	}
 
 	// slow path
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if timeNow().Before(v.expiration) {
+	if !v.expiration.IsZero() && timeNow().Before(v.expiration) {
 		return v.result, nil
 	}
 	res, ttl, err := r.resolveOneNoCache(ctx, name, typ)
