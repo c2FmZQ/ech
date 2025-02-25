@@ -9,5 +9,6 @@ require (
 
 require (
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 )
