@@ -35,6 +35,8 @@ var (
 		4: ErrNotImplemented,
 		5: ErrQueryRefused,
 	}
+
+	timeNow = time.Now
 )
 
 // ResolveResult contains the A and HTTPS records.
@@ -356,14 +358,14 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 	v.mu.RLock()
 	exp, res := v.expiration, v.result
 	v.mu.RUnlock()
-	if time.Now().Before(exp) {
+	if timeNow().Before(exp) {
 		return res, nil
 	}
 
 	// slow path
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if time.Now().Before(v.expiration) {
+	if timeNow().Before(v.expiration) {
 		return v.result, nil
 	}
 	res, ttl, err := r.resolveOneNoCache(ctx, name, typ)
@@ -374,7 +376,7 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 	if len(res) == 0 {
 		ttl = 300
 	}
-	v.expiration = time.Now().Add(time.Second * time.Duration(ttl))
+	v.expiration = timeNow().Add(time.Second * time.Duration(ttl))
 	v.result = res
 	return res, nil
 }

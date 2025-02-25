@@ -147,6 +147,11 @@ func TestResolve(t *testing.T) {
 }
 
 func TestResolverCache(t *testing.T) {
+	now := time.Date(2025, 2, 25, 12, 0, 0, 0, time.UTC)
+	timeNow = func() time.Time {
+		return now
+	}
+
 	db := []dns.RR{
 		{
 			Name: "example.com", Type: 1, Class: 1, TTL: 1,
@@ -175,7 +180,8 @@ func TestResolverCache(t *testing.T) {
 		db[0].Data = net.IP{192, 168, 1, 1}
 		db[1].Data = net.IP{192, 168, 1, 2}
 	}
-	time.Sleep(time.Second)
+
+	now = now.Add(time.Second)
 
 	want = []any{net.IP{192, 168, 1, 1}, net.IP{192, 168, 1, 2}}
 
@@ -187,8 +193,22 @@ func TestResolverCache(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("Resolve() = %#v, want %#v", got, want)
 		}
-		db[0].Data = net.IP{192, 168, 2, 1}
-		db[1].Data = net.IP{192, 168, 2, 2}
+		db[0].Name = "foo.example.com"
+		db[1].Name = "foo.example.com"
+	}
+
+	now = now.Add(time.Second)
+
+	want = nil
+
+	for range 5 {
+		got, err := resolver.resolveOne(t.Context(), "example.com", "A")
+		if err != nil {
+			t.Fatalf("resolver.resolveOne: %v", err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Resolve() = %#v, want %#v", got, want)
+		}
 	}
 }
 
