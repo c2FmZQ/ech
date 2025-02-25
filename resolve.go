@@ -356,7 +356,6 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 	v.mu.RLock()
 	exp, res := v.expiration, v.result
 	v.mu.RUnlock()
-
 	if time.Now().Before(exp) {
 		return res, nil
 	}
@@ -375,7 +374,7 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 	if len(res) == 0 {
 		ttl = 300
 	}
-	v.expiration = time.Now().Add(time.Duration(ttl))
+	v.expiration = time.Now().Add(time.Second * time.Duration(ttl))
 	v.result = res
 	return res, nil
 }
