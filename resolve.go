@@ -19,6 +19,8 @@ import (
 	"github.com/c2FmZQ/ech/dns"
 )
 
+const defaultResolverCacheSize = 32
+
 var (
 	ErrInvalidName = errors.New("invalid name")
 
@@ -189,7 +191,7 @@ type Resolver struct {
 	cache   *lru.TwoQueueCache[cacheKey, *cacheValue]
 }
 
-// SetCacheSize sets the size of the DNS cache. The default size is 20. A zero
+// SetCacheSize sets the size of the DNS cache. The default size is 32. A zero
 // or negative value disables caching.
 func (r *Resolver) SetCacheSize(n int) {
 	if n <= 0 {
@@ -203,7 +205,7 @@ func (r *Resolver) SetCacheSize(n int) {
 }
 
 func newResolverCache() *lru.TwoQueueCache[cacheKey, *cacheValue] {
-	c, err := lru.New2Q[cacheKey, *cacheValue](20)
+	c, err := lru.New2Q[cacheKey, *cacheValue](defaultResolverCacheSize)
 	if err != nil {
 		panic(err)
 	}
