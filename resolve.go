@@ -187,8 +187,21 @@ type Resolver struct {
 	cache   *lru.TwoQueueCache[cacheKey, *cacheValue]
 }
 
+// SetCacheSize sets the size of the DNS cache. The default size is 20. A zero
+// or negative value disables caching.
+func (r *Resolver) SetCacheSize(n int) {
+	if n <= 0 {
+		r.cache = nil
+		return
+	}
+	if r.cache == nil {
+		r.cache = newResolverCache()
+	}
+	r.cache.Resize(n)
+}
+
 func newResolverCache() *lru.TwoQueueCache[cacheKey, *cacheValue] {
-	c, err := lru.New2Q[cacheKey, *cacheValue](128)
+	c, err := lru.New2Q[cacheKey, *cacheValue](20)
 	if err != nil {
 		panic(err)
 	}
