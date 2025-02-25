@@ -11,9 +11,15 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
+	"time"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 
 	"github.com/c2FmZQ/ech/dns"
 )
+
+const defaultResolverCacheSize = 32
 
 var (
 	ErrInvalidName = errors.New("invalid name")
@@ -31,6 +37,8 @@ var (
 		4: ErrNotImplemented,
 		5: ErrQueryRefused,
 	}
+
+	timeNow = time.Now
 )
 
 // ResolveResult contains the A and HTTPS records.
@@ -130,6 +138,7 @@ var DefaultResolver = CloudflareResolver()
 func CloudflareResolver() *Resolver {
 	return &Resolver{
 		baseURL: url.URL{Scheme: "https", Host: "1.1.1.1", Path: "/dns-query"},
+		cache:   newResolverCache(),
 	}
 }
 
@@ -138,6 +147,7 @@ func CloudflareResolver() *Resolver {
 func GoogleResolver() *Resolver {
 	return &Resolver{
 		baseURL: url.URL{Scheme: "https", Host: "dns.google", Path: "/dns-query"},
+		cache:   newResolverCache(),
 	}
 }
 
@@ -146,6 +156,7 @@ func GoogleResolver() *Resolver {
 func WikimediaResolver() *Resolver {
 	return &Resolver{
 		baseURL: url.URL{Scheme: "https", Host: "wikimedia-dns.org", Path: "/dns-query"},
+		cache:   newResolverCache(),
 	}
 }
 
@@ -163,6 +174,7 @@ func NewResolver(URL string) (*Resolver, error) {
 	}
 	return &Resolver{
 		baseURL: *u,
+		cache:   newResolverCache(),
 	}, nil
 }
 
@@ -176,6 +188,39 @@ func NewResolver(URL string) (*Resolver, error) {
 // needed to establish a secure and private TLS connection using ECH.
 type Resolver struct {
 	baseURL url.URL
+	cache   *lru.TwoQueueCache[cacheKey, *cacheValue]
+}
+
+// SetCacheSize sets the size of the DNS cache. The default size is 32. A zero
+// or negative value disables caching.
+func (r *Resolver) SetCacheSize(n int) {
+	if n <= 0 {
+		r.cache = nil
+		return
+	}
+	if r.cache == nil {
+		r.cache = newResolverCache()
+	}
+	r.cache.Resize(n)
+}
+
+func newResolverCache() *lru.TwoQueueCache[cacheKey, *cacheValue] {
+	c, err := lru.New2Q[cacheKey, *cacheValue](defaultResolverCacheSize)
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
+
+type cacheKey struct {
+	name string
+	typ  string
+}
+
+type cacheValue struct {
+	mu         sync.RWMutex
+	expiration time.Time
+	result     []any
 }
 
 // Resolve uses DNS-over-HTTPS to resolve name.
@@ -300,6 +345,45 @@ func (r *Resolver) resolveTarget(ctx context.Context, name string, res *ResolveR
 }
 
 func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, error) {
+	cache := r.cache
+	if cache == nil {
+		v, _, err := r.resolveOneNoCache(ctx, name, typ)
+		return v, err
+	}
+	key := cacheKey{name, typ}
+	v, ok := cache.Get(key)
+	if !ok {
+		v = &cacheValue{}
+		cache.Add(key, v)
+	}
+	// fast path
+	v.mu.RLock()
+	exp, res := v.expiration, v.result
+	v.mu.RUnlock()
+	if !exp.IsZero() && timeNow().Before(exp) {
+		return res, nil
+	}
+
+	// slow path
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if !v.expiration.IsZero() && timeNow().Before(v.expiration) {
+		return v.result, nil
+	}
+	res, ttl, err := r.resolveOneNoCache(ctx, name, typ)
+	if err != nil {
+		cache.Remove(key)
+		return nil, err
+	}
+	if len(res) == 0 {
+		ttl = 300
+	}
+	v.expiration = timeNow().Add(time.Second * time.Duration(ttl))
+	v.result = res
+	return res, nil
+}
+
+func (r *Resolver) resolveOneNoCache(ctx context.Context, name, typ string) ([]any, uint32, error) {
 	qq := &dns.Message{
 		ID: 0x0000,
 		RD: 1,
@@ -313,18 +397,22 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 
 	result, err := dns.DoH(ctx, qq, r.baseURL.String())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if rc := result.ResponseCode(); rc != 0 {
 		if err := rcode[rc]; err != nil {
-			return nil, fmt.Errorf("%s (%s): %w (%d)", name, typ, rcode[rc], rc)
+			return nil, 0, fmt.Errorf("%s (%s): %w (%d)", name, typ, rcode[rc], rc)
 		}
-		return nil, fmt.Errorf("%s (%s): response code %d", name, typ, rc)
+		return nil, 0, fmt.Errorf("%s (%s): response code %d", name, typ, rc)
 	}
 	var res []any
+	var ttl uint32
 	want := strings.TrimSuffix(name, ".")
 	for _, a := range result.Answer {
+		if ttl == 0 || ttl > a.TTL {
+			ttl = a.TTL
+		}
 		name := strings.TrimSuffix(a.Name, ".")
 		if name == want && a.Type == dns.RRType(typ) {
 			res = append(res, a.Data)
@@ -334,5 +422,5 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 			continue
 		}
 	}
-	return res, nil
+	return res, ttl, nil
 }

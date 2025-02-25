@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/c2FmZQ/ech/dns"
 	"github.com/c2FmZQ/ech/testutil"
@@ -141,6 +142,70 @@ func TestResolve(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("Resolve(%q) = %#v, want %#v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestResolverCache(t *testing.T) {
+	now := time.Date(2025, 2, 25, 12, 0, 0, 0, time.UTC)
+	timeNow = func() time.Time {
+		return now
+	}
+
+	db := []dns.RR{
+		{
+			Name: "example.com", Type: 1, Class: 1, TTL: 5,
+			Data: net.IP{192, 168, 0, 1},
+		},
+		{
+			Name: "example.com", Type: 1, Class: 1, TTL: 5,
+			Data: net.IP{192, 168, 0, 2},
+		},
+	}
+	ts := testutil.StartTestDNSServer(t, db)
+	defer ts.Close()
+	resolver := &Resolver{baseURL: url.URL{Scheme: "http", Host: ts.Listener.Addr().String(), Path: "/dns-query"}}
+	resolver.SetCacheSize(10)
+
+	want := []any{net.IP{192, 168, 0, 1}, net.IP{192, 168, 0, 2}}
+
+	for range 5 {
+		got, err := resolver.resolveOne(t.Context(), "example.com", "A")
+		if err != nil {
+			t.Fatalf("resolver.resolveOne: %v", err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("resolver.resolveOne() = %#v, want %#v", got, want)
+		}
+		now = now.Add(time.Second)
+		db[0].Data = net.IP{192, 168, 1, 1}
+		db[1].Data = net.IP{192, 168, 1, 2}
+	}
+
+	want = []any{net.IP{192, 168, 1, 1}, net.IP{192, 168, 1, 2}}
+
+	for range 5 {
+		got, err := resolver.resolveOne(t.Context(), "example.com", "A")
+		if err != nil {
+			t.Fatalf("resolver.resolveOne: %v", err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("resolver.resolveOne() = %#v, want %#v", got, want)
+		}
+		now = now.Add(time.Second)
+		db[0].Name = "foo.example.com"
+		db[1].Name = "foo.example.com"
+	}
+
+	want = nil
+
+	for range 5 {
+		got, err := resolver.resolveOne(t.Context(), "example.com", "A")
+		if err != nil {
+			t.Fatalf("resolver.resolveOne: %v", err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("resolver.resolveOne() = %#v, want %#v", got, want)
 		}
 	}
 }
