@@ -369,6 +369,7 @@ func (r *Resolver) resolveOne(ctx context.Context, name, typ string) ([]any, err
 	}
 	res, ttl, err := r.resolveOneNoCache(ctx, name, typ)
 	if err != nil {
+		cache.Remove(key)
 		return nil, err
 	}
 	if len(res) == 0 {
