@@ -266,7 +266,7 @@ func TestResolveResultTargets(t *testing.T) {
 		},
 	} {
 		var s []string
-		for target := range tc.result.Targets("tcp", 443) {
+		for target := range tc.result.Targets("tcp", 0) {
 			v := target.Address.String()
 			if len(target.ECH) > 0 {
 				v += " " + string(target.ECH)

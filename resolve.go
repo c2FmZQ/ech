@@ -53,8 +53,9 @@ type Target struct {
 	ECH     []byte
 }
 
-// Targets computes the target addresses to attempt in preferred order.
-func (r ResolveResult) Targets(network string, defaultPort int) iter.Seq[Target] {
+// Targets computes the target addresses to attempt in preferred order. If
+// port is 0 the port parameter from the HTTPS record or 443 will be tried.
+func (r ResolveResult) Targets(network string, port int) iter.Seq[Target] {
 	address := func(ip net.IP, port int) net.Addr {
 		if (network == "tcp4" || network == "udp4") && len(ip) != 4 {
 			return nil
@@ -74,6 +75,9 @@ func (r ResolveResult) Targets(network string, defaultPort int) iter.Seq[Target]
 	return func(yield func(Target) bool) {
 		seen := make(map[string]bool)
 		add := func(ip net.IP, port int, ech []byte) bool {
+			if port == 0 {
+				port = 443
+			}
 			addr := address(ip, port)
 			if addr == nil {
 				return true
@@ -87,38 +91,38 @@ func (r ResolveResult) Targets(network string, defaultPort int) iter.Seq[Target]
 		}
 
 		for _, h := range r.HTTPS {
-			port := defaultPort
-			if h.Port > 0 {
-				port = int(h.Port)
+			httpsPort := port
+			if httpsPort == 0 && h.Port > 0 {
+				httpsPort = int(h.Port)
 			}
 			if h.Target != "" {
 				for _, a := range r.Additional[h.Target] {
-					if !add(a, port, h.ECH) {
+					if !add(a, httpsPort, h.ECH) {
 						return
 					}
 				}
 				continue
 			}
 			for _, a := range r.Address {
-				if !add(a, port, h.ECH) {
+				if !add(a, httpsPort, h.ECH) {
 					return
 				}
 			}
 			if len(r.Address) == 0 {
 				for _, a := range h.IPv4Hint {
-					if !add(a, port, h.ECH) {
+					if !add(a, httpsPort, h.ECH) {
 						return
 					}
 				}
 				for _, a := range h.IPv6Hint {
-					if !add(a, port, h.ECH) {
+					if !add(a, httpsPort, h.ECH) {
 						return
 					}
 				}
 			}
 		}
 		for _, a := range r.Address {
-			if !add(a, defaultPort, nil) {
+			if !add(a, port, nil) {
 				return
 			}
 		}
