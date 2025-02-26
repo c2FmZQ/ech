@@ -116,8 +116,8 @@ func TestDial(t *testing.T) {
 		port       int
 		configList []byte
 	}{
-		{"h1.example.com", 443, nil},          // port & config list from DNS
-		{"h2.example.com", 443, nil},          // port & config list from DNS (retry)
+		{"h1.example.com", 0, nil},            // port & config list from DNS
+		{"h2.example.com", 0, nil},            // port & config list from DNS (retry)
 		{"h3.example.com", port, configList},  // correct config list
 		{"h3.example.com", port, configList2}, // incorrect config list (retry)
 	} {
