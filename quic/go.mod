@@ -3,7 +3,7 @@ module github.com/c2FmZQ/ech/quic
 go 1.24
 
 require (
-	github.com/c2FmZQ/ech v0.2.7
+	github.com/c2FmZQ/ech v0.2.8
 	github.com/quic-go/quic-go v0.50.0
 )
 
@@ -15,7 +15,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/onsi/ginkgo/v2 v2.22.2 // indirect
 	go.uber.org/mock v0.5.0 // indirect
-	golang.org/x/crypto v0.33.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
 	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa // indirect
 	golang.org/x/mod v0.23.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
