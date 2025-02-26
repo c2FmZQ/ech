@@ -132,7 +132,7 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 			host, port, err := net.SplitHostPort(a)
 			if err != nil {
 				host = a
-				port = "443"
+				port = "0"
 			}
 			result, err := resolver.Resolve(ctx, host)
 			if err != nil {
