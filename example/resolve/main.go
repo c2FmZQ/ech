@@ -48,7 +48,7 @@ func main() {
 		fmt.Printf("HTTPS: %s\n", h)
 	}
 	first := true
-	for a := range result.Targets("tcp", 443) {
+	for a := range result.Targets("tcp", 0) {
 		if first {
 			first = false
 			fmt.Println("\nOrdered Targets:")
