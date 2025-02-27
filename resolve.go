@@ -263,7 +263,7 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 	if h, p, err := net.SplitHostPort(name); err == nil {
 		if pp, err := strconv.ParseUint(p, 10, 16); err == nil {
 			name = h
-			if pp > 0 && pp != 80 && pp != 443 {
+			if pp > 0 {
 				result.Port = uint16(pp)
 			}
 		}
