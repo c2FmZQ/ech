@@ -5,10 +5,10 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"iter"
 	"net"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -129,26 +129,18 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 	targets := iter.Seq[dialTarget](func(yield func(dialTarget) bool) {
 		for _, a := range strings.Split(addr, ",") {
 			a := strings.TrimSpace(a)
-			host, port, err := net.SplitHostPort(a)
+			host, _, err := net.SplitHostPort(a)
 			if err != nil {
 				host = a
-				port = "0"
 			}
-			result, err := resolver.Resolve(ctx, host)
+			result, err := resolver.Resolve(ctx, a)
 			if err != nil {
-				if !yield(dialTarget{err: err}) {
+				if !yield(dialTarget{err: fmt.Errorf("%s: %w", a, err)}) {
 					return
 				}
 				continue
 			}
-			iport, err := strconv.Atoi(port)
-			if err != nil {
-				if !yield(dialTarget{err: err}) {
-					return
-				}
-				continue
-			}
-			for target := range result.Targets(network, iport) {
+			for target := range result.Targets(network) {
 				if !yield(dialTarget{
 					host:     host,
 					resolved: target,
@@ -236,14 +228,14 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 					tc.EncryptedClientHelloConfigList = target.resolved.ECH
 				}
 				if d.RequireECH && tc.EncryptedClientHelloConfigList == nil {
-					sendErr(errors.New("unable to get ECH config list"))
+					sendErr(fmt.Errorf("%s: unable to get ECH config list", target.host))
 					continue
 				}
 				ctx, cancel := context.WithTimeout(ctx, timeout)
 				conn, err := d.dialOne(ctx, network, target.resolved.Address.String(), tc)
 				cancel()
 				if err != nil {
-					sendErr(err)
+					sendErr(fmt.Errorf("%s: %w", target.host, err))
 					continue
 				}
 				sendConn(conn)
