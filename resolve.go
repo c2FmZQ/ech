@@ -92,6 +92,7 @@ func (r ResolveResult) Targets(network string, port int) iter.Seq[Target] {
 			return yield(Target{Address: addr, ECH: ech})
 		}
 
+		var count int
 		for _, h := range r.HTTPS {
 			httpsPort := port
 			if httpsPort == 0 && h.Port > 0 {
@@ -102,6 +103,7 @@ func (r ResolveResult) Targets(network string, port int) iter.Seq[Target] {
 					if !add(a, httpsPort, h.ECH) {
 						return
 					}
+					count++
 				}
 				continue
 			}
@@ -109,19 +111,25 @@ func (r ResolveResult) Targets(network string, port int) iter.Seq[Target] {
 				if !add(a, httpsPort, h.ECH) {
 					return
 				}
+				count++
 			}
 			if len(r.Address) == 0 {
 				for _, a := range h.IPv4Hint {
 					if !add(a, httpsPort, h.ECH) {
 						return
 					}
+					count++
 				}
 				for _, a := range h.IPv6Hint {
 					if !add(a, httpsPort, h.ECH) {
 						return
 					}
+					count++
 				}
 			}
+		}
+		if count > 0 {
+			return
 		}
 		for _, a := range r.Address {
 			if !add(a, port, nil) {

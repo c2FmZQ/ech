@@ -220,8 +220,7 @@ func TestDialer(t *testing.T) {
 		_, got := dialer.Dial(t.Context(), "tcp", "h1.example.com", nil)
 		want := strings.TrimSpace(strings.ReplaceAll(`
 			h1.example.com: pseudo-error "3.0.0.1:1000" ECH OK
-			h1.example.com: pseudo-error "3.0.0.1:2000" ECH publicname:example.com
-			h1.example.com: pseudo-error "3.0.0.1:443" ECH publicname:example.com`, "\t", ""))
+			h1.example.com: pseudo-error "3.0.0.1:2000" ECH publicname:example.com`, "\t", ""))
 		if got.Error() != want {
 			t.Errorf("Got %q, want %q", got, want)
 		}
@@ -241,7 +240,6 @@ func TestDialer(t *testing.T) {
 		want := strings.TrimSpace(strings.ReplaceAll(`
 			h1.example.com: pseudo-error "3.0.0.1:1000" ECH OK
 			h1.example.com: pseudo-error "3.0.0.1:2000" ECH publicname:example.com
-			h1.example.com: pseudo-error "3.0.0.1:443" ECH publicname:example.com
 			h2.example.com: pseudo-error "4.0.0.1:8443" ECH publicname:example.com`, "\t", ""))
 		if got.Error() != want {
 			t.Errorf("Got %q, want %q", got, want)
@@ -253,8 +251,7 @@ func TestDialer(t *testing.T) {
 		_, got := dialer.Dial(t.Context(), "tcp", "h1.example.com", nil)
 		want := strings.TrimSpace(strings.ReplaceAll(`
 			h1.example.com: pseudo-error "3.0.0.1:1000" ECH OK
-			h1.example.com: pseudo-error "3.0.0.1:2000" ECH nil
-			h1.example.com: pseudo-error "3.0.0.1:443" ECH nil`, "\t", ""))
+			h1.example.com: pseudo-error "3.0.0.1:2000" ECH nil`, "\t", ""))
 		if got.Error() != want {
 			t.Errorf("Got %q, want %q", got, want)
 		}
@@ -265,7 +262,6 @@ func TestDialer(t *testing.T) {
 		_, got := dialer.Dial(t.Context(), "tcp", "h1.example.com", nil)
 		want := strings.TrimSpace(strings.ReplaceAll(`
 			h1.example.com: pseudo-error "3.0.0.1:1000" ECH OK
-			h1.example.com: unable to get ECH config list
 			h1.example.com: unable to get ECH config list`, "\t", ""))
 		if got.Error() != want {
 			t.Errorf("Got %q, want %q", got, want)
