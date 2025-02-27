@@ -3,7 +3,7 @@ module github.com/c2FmZQ/ech/quic
 go 1.24
 
 require (
-	github.com/c2FmZQ/ech v0.2.8
+	github.com/c2FmZQ/ech v0.3.0
 	github.com/quic-go/quic-go v0.50.0
 )
 
