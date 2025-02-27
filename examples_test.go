@@ -129,7 +129,35 @@ func ExampleResolve() {
 		log.Fatalf("Resolve: %v", err)
 	}
 
-	for target := range result.Targets("tcp", 443) {
+	for target := range result.Targets("tcp") {
+		fmt.Printf("Address: %s  ECH: %s\n", target.Address, base64.StdEncoding.EncodeToString(target.ECH))
+	}
+}
+
+func ExampleResolve_with_port() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := Resolve(ctx, "private.example.com:8443")
+	if err != nil {
+		log.Fatalf("Resolve: %v", err)
+	}
+
+	for target := range result.Targets("tcp") {
+		fmt.Printf("Address: %s  ECH: %s\n", target.Address, base64.StdEncoding.EncodeToString(target.ECH))
+	}
+}
+
+func ExampleResolve_with_uri() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := Resolve(ctx, "https://private.example.com:8443")
+	if err != nil {
+		log.Fatalf("Resolve: %v", err)
+	}
+
+	for target := range result.Targets("tcp") {
 		fmt.Printf("Address: %s  ECH: %s\n", target.Address, base64.StdEncoding.EncodeToString(target.ECH))
 	}
 }

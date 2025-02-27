@@ -140,7 +140,7 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 				}
 				continue
 			}
-			for target := range result.Targets(network, 0) {
+			for target := range result.Targets(network) {
 				if !yield(dialTarget{
 					host:     host,
 					resolved: target,
