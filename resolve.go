@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +44,7 @@ var (
 
 // ResolveResult contains the A and HTTPS records.
 type ResolveResult struct {
+	Port       int
 	Address    []net.IP
 	HTTPS      []dns.HTTPS
 	Additional map[string][]net.IP
@@ -54,7 +56,7 @@ type Target struct {
 }
 
 // Targets computes the target addresses to attempt in preferred order. If
-// port is 0 the port parameter from the HTTPS record or 443 will be tried.
+// port is 0 the port parameter from the HTTPS RR or 443 will be used.
 func (r ResolveResult) Targets(network string, port int) iter.Seq[Target] {
 	address := func(ip net.IP, port int) net.Addr {
 		if (network == "tcp4" || network == "udp4") && len(ip) != 4 {
@@ -76,7 +78,7 @@ func (r ResolveResult) Targets(network string, port int) iter.Seq[Target] {
 		seen := make(map[string]bool)
 		add := func(ip net.IP, port int, ech []byte) bool {
 			if port == 0 {
-				port = 443
+				port = r.Port
 			}
 			addr := address(ip, port)
 			if addr == nil {
@@ -228,8 +230,46 @@ type cacheValue struct {
 }
 
 // Resolve uses DNS-over-HTTPS to resolve name.
+//
+// The name argument can be any of:
+//   - an IP address or a hostname
+//   - an IP address or a hostname followed by a colon and a port number
+//   - a fully qualified URI
+//
+// Resolve uses the scheme and port number to locate the correct HTTPS RR
+// as specified in RFC 9460 section 2.3. When left unspecified, the default
+// scheme and port values are https and 443, respectively.
+//
+// For example:
+//   - example.com:8443 uses QNAME _8443._https.example.com
+//   - foo://example.com:123 uses QNAME _123._foo.example.com
+//   - example.com, example.com:433, example.com:80 all use QNAME example.com
+//
+// If the scheme is either http or https and the port is either 80 or 443, the
+// QNAME used is always the hostname by itself, without _port and _service.
+//
+// A and AAAA RRs are looked up with just the hostname as QNAME.
 func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, error) {
-	result := ResolveResult{}
+	result := ResolveResult{
+		Port: 443,
+	}
+	scheme := "https"
+
+	if u, err := url.Parse(name); err == nil && u.Scheme != "" && u.Host != "" {
+		scheme = strings.ToLower(u.Scheme)
+		if scheme == "http" {
+			scheme = "https"
+		}
+		name = u.Host
+	}
+	if h, p, err := net.SplitHostPort(name); err == nil {
+		if pp, err := strconv.Atoi(p); err == nil {
+			name = h
+			if pp > 0 && pp != 80 && pp != 443 {
+				result.Port = pp
+			}
+		}
+	}
 	if name == "localhost" {
 		result.Address = []net.IP{
 			net.IP{127, 0, 0, 1},
@@ -254,8 +294,16 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 		}
 	}
 
+	// https://www.rfc-editor.org/rfc/rfc9460.html#section-2.3
+	svcbName := name
+	if result.Port != 80 && result.Port != 443 {
+		svcbName = fmt.Sprintf("_%d._%s.%s", result.Port, scheme, name)
+	} else if scheme != "https" {
+		svcbName = fmt.Sprintf("_%s.%s", scheme, name)
+	}
+
 	// First, resolve HTTPS Aliases.
-	want := name
+	want := svcbName
 	seen := make(map[string]bool)
 	for {
 		if seen[want] {
@@ -270,7 +318,7 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 			break
 		}
 		https, err := r.resolveOne(ctx, want, "HTTPS")
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrNonExistentDomain) {
 			return result, err
 		}
 		if len(https) > 0 {
@@ -302,9 +350,12 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 		}
 		if len(h.Target) > 0 {
 			if err := r.resolveTarget(ctx, h.Target, &result); err != nil {
-				return result, err
+				continue
 			}
 		}
+	}
+	if want == svcbName {
+		want = name
 	}
 	// Then, resolve IP addresses.
 	a, err := r.resolveOne(ctx, want, "A")

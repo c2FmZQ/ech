@@ -80,24 +80,28 @@ func TestResolve(t *testing.T) {
 		{
 			name: "www.example.com",
 			want: ResolveResult{
+				Port:    443,
 				Address: []net.IP{{192, 168, 0, 3}},
 			},
 		},
 		{
 			name: "example.com",
 			want: ResolveResult{
+				Port:    443,
 				Address: []net.IP{{192, 168, 0, 3}},
 			},
 		},
 		{
 			name: "www2.example.com",
 			want: ResolveResult{
+				Port:    443,
 				Address: []net.IP{{192, 168, 0, 3}},
 			},
 		},
 		{
 			name: "foo.example.com",
 			want: ResolveResult{
+				Port: 443,
 				HTTPS: []dns.HTTPS{{
 					Priority: 1, ALPN: []string{"h2"}, Port: 8443, IPv4Hint: []net.IP{{127, 0, 0, 1}},
 				}},
@@ -106,6 +110,7 @@ func TestResolve(t *testing.T) {
 		{
 			name: "bar.example.com",
 			want: ResolveResult{
+				Port:    443,
 				Address: []net.IP{{192, 168, 0, 4}},
 				HTTPS: []dns.HTTPS{{
 					Priority: 1, ALPN: []string{"h2"}, ECH: []byte{0, 1, 2},
@@ -115,6 +120,7 @@ func TestResolve(t *testing.T) {
 		{
 			name: "xxx.example.com",
 			want: ResolveResult{
+				Port: 443,
 				HTTPS: []dns.HTTPS{{
 					Priority: 1, Target: "example.com", ALPN: []string{"h2"}, ECH: []byte{0, 1, 2},
 				}},
@@ -126,6 +132,7 @@ func TestResolve(t *testing.T) {
 		{
 			name: "yyy.example.com",
 			want: ResolveResult{
+				Port:    443,
 				Address: []net.IP{{192, 168, 0, 5}},
 				HTTPS: []dns.HTTPS{{
 					Priority: 1, Target: "example.com", ALPN: []string{"h2"}, ECH: []byte{0, 1, 2},
@@ -217,24 +224,28 @@ func TestResolveResultTargets(t *testing.T) {
 	}{
 		{
 			result: ResolveResult{
+				Port:    443,
 				Address: []net.IP{{192, 168, 0, 1}},
 			},
 			want: "192.168.0.1:443",
 		},
 		{
 			result: ResolveResult{
+				Port:    443,
 				Address: []net.IP{{192, 168, 0, 1}, {192, 168, 0, 2}},
 			},
 			want: "192.168.0.1:443 | 192.168.0.2:443",
 		},
 		{
 			result: ResolveResult{
+				Port:    443,
 				Address: []net.IP{{192, 168, 0, 1}, {192, 168, 0, 2}, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}},
 			},
 			want: "192.168.0.1:443 | 192.168.0.2:443 | [::1]:443",
 		},
 		{
 			result: ResolveResult{
+				Port:    443,
 				Address: []net.IP{{192, 168, 0, 5}},
 				HTTPS: []dns.HTTPS{{
 					Priority: 1, Target: "example.com", ALPN: []string{"h2"}, ECH: []byte("xyz"),
@@ -247,6 +258,7 @@ func TestResolveResultTargets(t *testing.T) {
 		},
 		{
 			result: ResolveResult{
+				Port: 443,
 				HTTPS: []dns.HTTPS{{
 					Priority: 1, ALPN: []string{"h2"}, IPv4Hint: []net.IP{{192, 168, 0, 1}}, ECH: []byte("xyz"),
 				}},
@@ -255,6 +267,7 @@ func TestResolveResultTargets(t *testing.T) {
 		},
 		{
 			result: ResolveResult{
+				Port: 443,
 				HTTPS: []dns.HTTPS{{
 					Priority: 1, Target: "foo", ALPN: []string{"h2"}, Port: 8443, IPv4Hint: []net.IP{{192, 168, 0, 1}}, ECH: []byte("xyz"),
 				}},
