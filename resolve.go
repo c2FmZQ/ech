@@ -2,12 +2,12 @@ package ech
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"iter"
 	"log"
 	"net"
+	"net/netip"
 	"net/url"
 	"sort"
 	"strconv"
@@ -44,65 +44,59 @@ var (
 
 // ResolveResult contains the A and HTTPS records.
 type ResolveResult struct {
-	Port       int
+	Port       uint16
 	Address    []net.IP
 	HTTPS      []dns.HTTPS
 	Additional map[string][]net.IP
 }
 
 type Target struct {
-	Address net.Addr
+	Address netip.AddrPort
 	ECH     []byte
 }
 
 // Targets computes the target addresses to attempt in preferred order.
 func (r ResolveResult) Targets(network string) iter.Seq[Target] {
-	address := func(ip net.IP, port int) net.Addr {
+	address := func(ip net.IP, port uint16) netip.AddrPort {
 		if (network == "tcp4" || network == "udp4") && len(ip) != 4 {
-			return nil
+			return netip.AddrPort{}
 		}
 		if (network == "tcp6" || network == "udp6") && len(ip) != 16 {
-			return nil
+			return netip.AddrPort{}
 		}
-		switch network {
-		case "tcp", "tcp4", "tcp6":
-			return &net.TCPAddr{IP: ip, Port: port}
-		case "udp", "udp4", "udp6":
-			return &net.UDPAddr{IP: ip, Port: port}
-		default:
-			return nil
+		addr, ok := netip.AddrFromSlice(ip)
+		if !ok {
+			return netip.AddrPort{}
 		}
+		return netip.AddrPortFrom(addr, port)
 	}
 	return func(yield func(Target) bool) {
-		seen := make(map[string]bool)
-		add := func(ip net.IP, port int, ech []byte) bool {
+		seen := make(map[netip.AddrPort]bool)
+		add := func(ip net.IP, port uint16, ech []byte) bool {
 			if port == 0 {
 				port = r.Port
 			}
 			addr := address(ip, port)
-			if addr == nil {
+			if !addr.IsValid() {
 				return true
 			}
-			key := addr.String() + " " + hex.EncodeToString(ech)
-			if seen[key] {
+			if seen[addr] {
 				return true
 			}
-			seen[key] = true
+			seen[addr] = true
 			return yield(Target{Address: addr, ECH: ech})
 		}
 
-		var count int
 		for _, h := range r.HTTPS {
-			var port int
+			var port uint16
 			if h.Port > 0 {
-				port = int(h.Port)
+				port = h.Port
 			}
 			if h.Target != "" {
 				for _, a := range r.Additional[h.Target] {
 					if !add(a, port, h.ECH) {
 						return
 					}
-					count++
 				}
 				continue
 			}
@@ -110,24 +104,21 @@ func (r ResolveResult) Targets(network string) iter.Seq[Target] {
 				if !add(a, port, h.ECH) {
 					return
 				}
-				count++
 			}
 			if len(r.Address) == 0 {
 				for _, a := range h.IPv4Hint {
 					if !add(a, port, h.ECH) {
 						return
 					}
-					count++
 				}
 				for _, a := range h.IPv6Hint {
 					if !add(a, port, h.ECH) {
 						return
 					}
-					count++
 				}
 			}
 		}
-		if count > 0 {
+		if len(seen) > 0 {
 			return
 		}
 		for _, a := range r.Address {
@@ -270,10 +261,10 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 		name = u.Host
 	}
 	if h, p, err := net.SplitHostPort(name); err == nil {
-		if pp, err := strconv.Atoi(p); err == nil {
+		if pp, err := strconv.ParseUint(p, 10, 16); err == nil {
 			name = h
 			if pp > 0 && pp != 80 && pp != 443 {
-				result.Port = pp
+				result.Port = uint16(pp)
 			}
 		}
 	}

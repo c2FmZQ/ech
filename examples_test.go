@@ -146,11 +146,11 @@ func ExampleNewDialer() {
 	fmt.Fprintln(conn, "Hello!")
 }
 
-func ExampleResolve() {
+func ExampleResolver_Resolve() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	result, err := Resolve(ctx, "private.example.com")
+	result, err := DefaultResolver.Resolve(ctx, "private.example.com")
 	if err != nil {
 		log.Fatalf("Resolve: %v", err)
 	}
@@ -160,11 +160,11 @@ func ExampleResolve() {
 	}
 }
 
-func ExampleResolve_with_port() {
+func ExampleResolver_Resolve_with_port() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	result, err := Resolve(ctx, "private.example.com:8443")
+	result, err := DefaultResolver.Resolve(ctx, "private.example.com:8443")
 	if err != nil {
 		log.Fatalf("Resolve: %v", err)
 	}
@@ -174,11 +174,11 @@ func ExampleResolve_with_port() {
 	}
 }
 
-func ExampleResolve_with_uri() {
+func ExampleResolver_Resolve_with_uri() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	result, err := Resolve(ctx, "https://private.example.com:8443")
+	result, err := DefaultResolver.Resolve(ctx, "https://private.example.com:8443")
 	if err != nil {
 		log.Fatalf("Resolve: %v", err)
 	}
