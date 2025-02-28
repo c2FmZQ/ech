@@ -5,8 +5,11 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
+	"os"
 	"time"
 )
 
@@ -186,4 +189,21 @@ func ExampleResolver_Resolve_with_uri() {
 	for target := range result.Targets("tcp") {
 		fmt.Printf("Address: %s  ECH: %s\n", target.Address, base64.StdEncoding.EncodeToString(target.ECH))
 	}
+}
+
+func ExampleTransport() {
+	url := "https://private.example.com"
+
+	transport := NewTransport()
+	transport.Dialer.RequireECH = true
+
+	client := &http.Client{Transport: transport}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		log.Fatalf("%q: %v", url, err)
+	}
+	defer resp.Body.Close()
+	fmt.Printf("==== %s Status:%d ====\n", url, resp.StatusCode)
+	io.Copy(os.Stdout, resp.Body)
 }
