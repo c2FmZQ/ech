@@ -76,7 +76,9 @@ type Dialer[T any] struct {
 	RequireECH bool
 	// Resolver specifies the resolver to use for DNS lookups. If nil,
 	// DefaultResolver is used.
-	Resolver *Resolver
+	Resolver interface {
+		Resolve(ctx context.Context, name string) (ResolveResult, error)
+	}
 	// PublicName is used to fetch the ECH Config List from the server when
 	// the Config List isn't specified in the tls.Config or in DNS. In
 	// that case, Dial generates a fake (but valid) Config List with this
