@@ -73,7 +73,6 @@ func TestTransport(t *testing.T) {
 	transport.Resolver = &Resolver{baseURL: url.URL{Scheme: "http", Host: dnsServer.Listener.Addr().String(), Path: "/dns-query"}}
 	transport.TLSConfig = &tls.Config{
 		RootCAs:                        rootCAs,
-		NextProtos:                     []string{"h2"},
 		EncryptedClientHelloConfigList: configList,
 	}
 
