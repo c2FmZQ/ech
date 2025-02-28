@@ -88,7 +88,12 @@ func (r ResolveResult) Targets(network string) iter.Seq[Target] {
 		}
 
 		for _, h := range r.HTTPS {
-			var port uint16
+			port := r.Port
+			// When using HTTPS RRs, http requests are upgraded to
+			// https. RFC 9460 section-9.5
+			if port == 80 {
+				port = 443
+			}
 			if h.Port > 0 {
 				port = h.Port
 			}
