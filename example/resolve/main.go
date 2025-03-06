@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/c2FmZQ/ech"
 )
@@ -59,6 +60,10 @@ func main() {
 		if len(a.ECH) > 0 {
 			ech = " ech=" + base64.StdEncoding.EncodeToString(a.ECH)
 		}
-		fmt.Printf("  %s%s\n", a.Address, ech)
+		var alpn string
+		if len(a.ALPN) > 0 {
+			alpn = " alpn=" + strings.Join(a.ALPN, ",")
+		}
+		fmt.Printf("  %s%s%s\n", a.Address, alpn, ech)
 	}
 }
