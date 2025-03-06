@@ -169,6 +169,14 @@ func WikimediaResolver() *Resolver {
 	}
 }
 
+// InsecureGoResolver uses the default GO resolver. This option exists for
+// testing purposes and for cases where DoH is not desired.
+func InsecureGoResolver() *Resolver {
+	return &Resolver{
+		insecureUseGoResolver: true,
+	}
+}
+
 // NewResolver returns a resolver that uses any RFC 8484 compliant
 // DNS-over-HTTPS service.
 // See https://github.com/curl/curl/wiki/DNS-over-HTTPS#publicly-available-servers
@@ -198,6 +206,8 @@ func NewResolver(URL string) (*Resolver, error) {
 type Resolver struct {
 	baseURL url.URL
 	cache   *lru.TwoQueueCache[cacheKey, *cacheValue]
+
+	insecureUseGoResolver bool
 }
 
 // SetCacheSize sets the size of the DNS cache. The default size is 32. A zero
@@ -257,6 +267,22 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 		Port: 443,
 	}
 	scheme := "https"
+
+	if r.insecureUseGoResolver {
+		ips, err := new(net.Resolver).LookupIP(ctx, "ip", name)
+		if err != nil {
+			return result, err
+		}
+		result.Address = make([]net.IP, 0, len(ips))
+		for _, ip := range ips {
+			if ipv4 := ip.To4(); ipv4 != nil {
+				result.Address = append(result.Address, ipv4)
+				continue
+			}
+			result.Address = append(result.Address, ip)
+		}
+		return result, nil
+	}
 
 	if u, err := url.Parse(name); err == nil && u.Scheme != "" && u.Host != "" {
 		scheme = strings.ToLower(u.Scheme)
