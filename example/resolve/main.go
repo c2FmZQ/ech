@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	resolver := flag.String("resolver", "cloudflare", "One of cloudflare, google, wikimedia")
+	resolver := flag.String("resolver", "cloudflare", "One of cloudflare, google, wikimedia, insecure")
 	flag.Parse()
 
 	var r *ech.Resolver
@@ -24,6 +24,8 @@ func main() {
 		r = ech.GoogleResolver()
 	case "wikimedia":
 		r = ech.WikimediaResolver()
+	case "insecure":
+		r = ech.InsecureGoResolver()
 	default:
 		var err error
 		if r, err = ech.NewResolver(*resolver); err != nil {
