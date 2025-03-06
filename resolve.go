@@ -268,22 +268,6 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 	}
 	scheme := "https"
 
-	if r.insecureUseGoResolver {
-		ips, err := new(net.Resolver).LookupIP(ctx, "ip", name)
-		if err != nil {
-			return result, err
-		}
-		result.Address = make([]net.IP, 0, len(ips))
-		for _, ip := range ips {
-			if ipv4 := ip.To4(); ipv4 != nil {
-				result.Address = append(result.Address, ipv4)
-				continue
-			}
-			result.Address = append(result.Address, ip)
-		}
-		return result, nil
-	}
-
 	if u, err := url.Parse(name); err == nil && u.Scheme != "" && u.Host != "" {
 		scheme = strings.ToLower(u.Scheme)
 		if scheme == "http" {
@@ -321,6 +305,22 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 		if len(p) > 63 {
 			return result, ErrInvalidName
 		}
+	}
+
+	if r.insecureUseGoResolver {
+		ips, err := new(net.Resolver).LookupIP(ctx, "ip", name)
+		if err != nil {
+			return result, err
+		}
+		result.Address = make([]net.IP, 0, len(ips))
+		for _, ip := range ips {
+			if ipv4 := ip.To4(); ipv4 != nil {
+				result.Address = append(result.Address, ipv4)
+				continue
+			}
+			result.Address = append(result.Address, ip)
+		}
+		return result, nil
 	}
 
 	// https://www.rfc-editor.org/rfc/rfc9460.html#section-2.3
