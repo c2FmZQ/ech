@@ -170,7 +170,8 @@ func WikimediaResolver() *Resolver {
 }
 
 // InsecureGoResolver uses the default GO resolver. This option exists for
-// testing purposes and for cases where DoH is not desired.
+// testing purposes and for cases where DoH is not desired. It does NOT use
+// HTTPS RRs.
 func InsecureGoResolver() *Resolver {
 	return &Resolver{
 		insecureUseGoResolver: true,
@@ -308,7 +309,7 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 	}
 
 	if r.insecureUseGoResolver {
-		ips, err := new(net.Resolver).LookupIP(ctx, "ip", name)
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", name)
 		if err != nil {
 			return result, err
 		}
