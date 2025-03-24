@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"iter"
 	"log"
+	"maps"
 	"net"
 	"net/netip"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,6 +55,16 @@ type ResolveResult struct {
 type Target struct {
 	Address netip.AddrPort
 	ECH     []byte
+	ALPN    []string
+}
+
+func (r ResolveResult) clone() ResolveResult {
+	return ResolveResult{
+		Port:       r.Port,
+		Address:    slices.Clone(r.Address),
+		HTTPS:      slices.Clone(r.HTTPS),
+		Additional: maps.Clone(r.Additional),
+	}
 }
 
 // Targets computes the target addresses to attempt in preferred order.
@@ -72,7 +84,7 @@ func (r ResolveResult) Targets(network string) iter.Seq[Target] {
 	}
 	return func(yield func(Target) bool) {
 		seen := make(map[netip.AddrPort]bool)
-		add := func(ip net.IP, port uint16, ech []byte) bool {
+		add := func(ip net.IP, port uint16, ech []byte, alpn []string) bool {
 			if port == 0 {
 				port = r.Port
 			}
@@ -84,10 +96,13 @@ func (r ResolveResult) Targets(network string) iter.Seq[Target] {
 				return true
 			}
 			seen[addr] = true
-			return yield(Target{Address: addr, ECH: ech})
+			return yield(Target{Address: addr, ECH: ech, ALPN: alpn})
 		}
 
 		for _, h := range r.HTTPS {
+			if h.Priority == 0 {
+				continue
+			}
 			port := r.Port
 			// When using HTTPS RRs, http requests are upgraded to
 			// https. RFC 9460 section-9.5
@@ -97,27 +112,31 @@ func (r ResolveResult) Targets(network string) iter.Seq[Target] {
 			if h.Port > 0 {
 				port = h.Port
 			}
+			alpn := h.ALPN
+			if !h.NoDefaultALPN {
+				alpn = append(alpn, "http/1.1")
+			}
 			if h.Target != "" {
 				for _, a := range r.Additional[h.Target] {
-					if !add(a, port, h.ECH) {
+					if !add(a, port, h.ECH, alpn) {
 						return
 					}
 				}
 				continue
 			}
 			for _, a := range r.Address {
-				if !add(a, port, h.ECH) {
+				if !add(a, port, h.ECH, alpn) {
 					return
 				}
 			}
 			if len(r.Address) == 0 {
 				for _, a := range h.IPv4Hint {
-					if !add(a, port, h.ECH) {
+					if !add(a, port, h.ECH, alpn) {
 						return
 					}
 				}
 				for _, a := range h.IPv6Hint {
-					if !add(a, port, h.ECH) {
+					if !add(a, port, h.ECH, alpn) {
 						return
 					}
 				}
@@ -127,7 +146,7 @@ func (r ResolveResult) Targets(network string) iter.Seq[Target] {
 			return
 		}
 		for _, a := range r.Address {
-			if !add(a, r.Port, nil) {
+			if !add(a, r.Port, nil, nil) {
 				return
 			}
 		}

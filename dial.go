@@ -75,10 +75,9 @@ type Dialer[T any] struct {
 	// plaintext Client Hello when a Config List isn't found.
 	RequireECH bool
 	// Resolver specifies the resolver to use for DNS lookups. If nil,
-	// DefaultResolver is used.
-	Resolver interface {
-		Resolve(ctx context.Context, name string) (ResolveResult, error)
-	}
+	// DefaultResolver is used. When Dialer is used by Transport, this
+	// value is ignored.
+	Resolver *Resolver
 	// PublicName is used to fetch the ECH Config List from the server when
 	// the Config List isn't specified in the tls.Config or in DNS. In
 	// that case, Dial generates a fake (but valid) Config List with this
@@ -119,7 +118,15 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 	} else {
 		tc = tc.Clone()
 	}
-	resolver := d.Resolver
+	var resolver interface {
+		Resolve(ctx context.Context, name string) (ResolveResult, error)
+	}
+	if r, ok := ctx.Value(transportResolverKey).(*transportResolver); ok {
+		resolver = r
+	}
+	if resolver == nil && d.Resolver != nil {
+		resolver = d.Resolver
+	}
 	if resolver == nil {
 		resolver = DefaultResolver
 	}
@@ -131,9 +138,14 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 	targets := iter.Seq[dialTarget](func(yield func(dialTarget) bool) {
 		for _, a := range strings.Split(addr, ",") {
 			a := strings.TrimSpace(a)
-			host, _, err := net.SplitHostPort(a)
-			if err != nil {
-				host = a
+			var host string
+			if res, ok := resolver.(*transportResolver); ok {
+				host = res.host
+			} else {
+				var err error
+				if host, _, err = net.SplitHostPort(a); err != nil {
+					host = a
+				}
 			}
 			result, err := resolver.Resolve(ctx, a)
 			if err != nil {
