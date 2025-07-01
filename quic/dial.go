@@ -30,14 +30,14 @@ import (
 //	dialer := NewDialer(&quic.Config{})
 //	dialer.RequireECH = true
 //	conn, err := dialer.Dial(...)
-func Dial(ctx context.Context, network, addr string, tc *tls.Config, qc *quic.Config) (quic.Connection, error) {
+func Dial(ctx context.Context, network, addr string, tc *tls.Config, qc *quic.Config) (*quic.Conn, error) {
 	return NewDialer(qc).Dial(ctx, network, addr, tc)
 }
 
 // NewDialer returns a [quic.Connection] Dialer.
-func NewDialer(qc *quic.Config) *ech.Dialer[quic.Connection] {
-	return &ech.Dialer[quic.Connection]{
-		DialFunc: func(ctx context.Context, network, addr string, tc *tls.Config) (quic.Connection, error) {
+func NewDialer(qc *quic.Config) *ech.Dialer[*quic.Conn] {
+	return &ech.Dialer[*quic.Conn]{
+		DialFunc: func(ctx context.Context, network, addr string, tc *tls.Config) (*quic.Conn, error) {
 			return quic.DialAddr(ctx, addr, tc, qc)
 		},
 	}

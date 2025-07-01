@@ -14,8 +14,8 @@ import (
 // [http.Client]. This Transport uses the HTTP/3 protocol with the hostname
 // has a HTTPS RR with h3 in its ALPN list.
 func NewTransport(qc *quic.Config) *ech.Transport {
-	dialer := &ech.Dialer[quic.EarlyConnection]{
-		DialFunc: func(ctx context.Context, network, addr string, tc *tls.Config) (quic.EarlyConnection, error) {
+	dialer := &ech.Dialer[*quic.Conn]{
+		DialFunc: func(ctx context.Context, network, addr string, tc *tls.Config) (*quic.Conn, error) {
 			return quic.DialAddrEarly(ctx, addr, tc, qc)
 		},
 	}
@@ -23,7 +23,7 @@ func NewTransport(qc *quic.Config) *ech.Transport {
 
 	t := ech.NewTransport()
 	t.HTTP3Transport = &http3.Transport{
-		Dial: func(ctx context.Context, addr string, _ *tls.Config, _ *quic.Config) (quic.EarlyConnection, error) {
+		Dial: func(ctx context.Context, addr string, _ *tls.Config, _ *quic.Config) (*quic.Conn, error) {
 			once.Do(func() {
 				dialer.RequireECH = t.Dialer.RequireECH
 				dialer.PublicName = t.Dialer.PublicName
