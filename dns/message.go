@@ -342,8 +342,8 @@ func (rr RR) Bytes() []byte {
 			}
 		case HTTPS:
 			s.AddUint16(data.Priority)
-			if len(data.Target) > 0 {
-				for _, p := range strings.Split(data.Target, ".") {
+			if target := strings.TrimSuffix(data.Target, "."); len(target) > 0 {
+				for _, p := range strings.Split(target, ".") {
 					s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
 						s.AddBytes([]byte(p))
 					})
