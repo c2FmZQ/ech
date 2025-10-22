@@ -309,8 +309,8 @@ func (m Message) Bytes() []byte {
 
 func (rr RR) Bytes() []byte {
 	s := cryptobyte.NewBuilder(nil)
-	if len(rr.Name) > 0 {
-		for _, p := range strings.Split(rr.Name, ".") {
+	if name := strings.TrimSuffix(rr.Name, "."); len(name) > 0 {
+		for _, p := range strings.Split(name, ".") {
 			s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
 				s.AddBytes([]byte(p))
 			})
@@ -326,7 +326,7 @@ func (rr RR) Bytes() []byte {
 			s.AddBytes([]byte(data))
 		case string:
 			if rr.Type == 2 || rr.Type == 5 || rr.Type == 12 { // NS, CNAME, PTR
-				for _, p := range strings.Split(data, ".") {
+				for _, p := range strings.Split(strings.TrimSuffix(data, "."), ".") {
 					s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
 						s.AddBytes([]byte(p))
 					})
