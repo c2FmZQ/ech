@@ -3,12 +3,12 @@ package ech
 import (
 	"bytes"
 	"crypto/ecdh"
+	"crypto/hpke"
 	"io"
 	"net"
 	"slices"
 	"time"
 
-	"github.com/c2FmZQ/ech/internal/hpke"
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -65,7 +65,7 @@ func newClientHello(opts ...any) *testClientHello {
 			Extensions:               []extension{},
 		},
 	}
-	aead := uint16(3)
+	aead := hpke.ChaCha20Poly1305()
 	var pubKey *ecdh.PublicKey
 	var inner *testClientHello
 	var config Config
@@ -82,9 +82,9 @@ func newClientHello(opts ...any) *testClientHello {
 		case "ech_outer_extensions":
 			h.addECHOuterExt(nil)
 		case "aes-128":
-			aead = 1
+			aead = hpke.AES128GCM()
 		case "aes-256":
-			aead = 2
+			aead = hpke.AES256GCM()
 		default:
 			if c, ok := opt.(Config); ok {
 				config = c
@@ -106,7 +106,11 @@ func newClientHello(opts ...any) *testClientHello {
 		if h.hpkeCtx != nil {
 			encap = []byte{}
 		} else {
-			enc, hpkeCtx, err := hpke.SetupSender(hpke.DHKEM_X25519_HKDF_SHA256, 0x0001, aead, pubKey, info)
+			pub, err := hpke.NewDHKEMPublicKey(pubKey)
+			if err != nil {
+				panic(err)
+			}
+			enc, hpkeCtx, err := hpke.NewSender(pub, hpke.HKDFSHA256(), aead, info)
 			if err != nil {
 				panic(err)
 			}
@@ -114,7 +118,7 @@ func newClientHello(opts ...any) *testClientHello {
 			encap = enc
 		}
 		innerBytes := inner.bytes()[9:]
-		h.addClientHelloExtOuter(config[4], aead, encap, make([]byte, len(innerBytes)+16))
+		h.addClientHelloExtOuter(config[4], aead.ID(), encap, make([]byte, len(innerBytes)+16))
 		h.parse()
 		aad, err := h.marshalAAD()
 		if err != nil {
@@ -125,7 +129,7 @@ func newClientHello(opts ...any) *testClientHello {
 			panic(err)
 		}
 		h.clientHello.Extensions = h.clientHello.Extensions[:len(h.clientHello.Extensions)-1]
-		h.addClientHelloExtOuter(config[4], aead, encap, payload)
+		h.addClientHelloExtOuter(config[4], aead.ID(), encap, payload)
 	}
 	h.parse()
 	return h
