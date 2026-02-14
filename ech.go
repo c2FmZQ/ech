@@ -2,6 +2,8 @@ package ech
 
 import (
 	"context"
+	"crypto/ecdh"
+	"crypto/hpke"
 	"fmt"
 	"io"
 	"net"
@@ -10,8 +12,6 @@ import (
 	"time"
 
 	"golang.org/x/crypto/cryptobyte"
-
-	"github.com/c2FmZQ/ech/internal/hpke"
 )
 
 var _ net.Conn = (*Conn)(nil)
@@ -101,7 +101,7 @@ type Conn struct {
 	outer *clientHello
 	inner *clientHello
 
-	hpkeCtx *hpke.Receipient
+	hpkeCtx *hpke.Recipient
 
 	keys             []Key
 	debugf           func(string, ...any)
@@ -197,13 +197,26 @@ func (c *Conn) processEncryptedClientHello(h *clientHello, isRetry bool) (*clien
 		}) == -1 {
 			continue
 		}
-		if c.hpkeCtx == nil && len(h.echExt.Enc) > 0 {
-			echPriv, err := hpke.ParseHPKEPrivateKey(cfg.KEM, key.PrivateKey)
+		needCtx := c.hpkeCtx == nil && len(h.echExt.Enc) > 0
+		if needCtx {
+			pk, err := ecdh.X25519().NewPrivateKey(key.PrivateKey)
 			if err != nil {
-				return nil, err
+				continue
+			}
+			privKey, err := hpke.NewDHKEMPrivateKey(pk)
+			if err != nil {
+				continue
+			}
+			kdf, err := hpke.NewKDF(h.echExt.CipherSuite.KDF)
+			if err != nil {
+				continue
+			}
+			aead, err := hpke.NewAEAD(h.echExt.CipherSuite.AEAD)
+			if err != nil {
+				continue
 			}
 			info := append([]byte("tls ech\x00"), key.Config...)
-			ctx, err := hpke.SetupReceipient(cfg.KEM, h.echExt.CipherSuite.KDF, h.echExt.CipherSuite.AEAD, echPriv, info, h.echExt.Enc)
+			ctx, err := hpke.NewRecipient(h.echExt.Enc, privKey, kdf, aead, info)
 			if err != nil {
 				continue
 			}
@@ -218,6 +231,9 @@ func (c *Conn) processEncryptedClientHello(h *clientHello, isRetry bool) (*clien
 		}
 		innerBytes, err = c.hpkeCtx.Open(aad, h.echExt.Payload)
 		if err != nil {
+			if needCtx {
+				c.hpkeCtx = nil
+			}
 			continue
 		}
 		if string(cfg.PublicName) != h.ServerName {

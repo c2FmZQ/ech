@@ -2,13 +2,13 @@ package ech
 
 import (
 	"bytes"
+	"crypto/hpke"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"net"
 	"testing"
 
-	"github.com/c2FmZQ/ech/internal/hpke"
 	"github.com/c2FmZQ/ech/testutil"
 )
 
@@ -564,7 +564,11 @@ func TestRetryDecryptError(t *testing.T) {
 	pubKey2 := privKey2.PublicKey()
 	keys := []Key{{Config: config, PrivateKey: privKey1.Bytes()}}
 
-	_, hpkeCtx2, err := hpke.SetupSender(hpke.DHKEM_X25519_HKDF_SHA256, 0x0001, 0x0003, pubKey2, append([]byte("tls ech\x00"), config...))
+	pub, err := hpke.NewDHKEMPublicKey(pubKey2)
+	if err != nil {
+		t.Fatalf("hpke.NewDHKEMPublicKey: %v", err)
+	}
+	_, hpkeCtx2, err := hpke.NewSender(pub, hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), append([]byte("tls ech\x00"), config...))
 	if err != nil {
 		t.Fatalf("hpke.SetupSender: %v", err)
 	}
