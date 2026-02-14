@@ -197,22 +197,23 @@ func (c *Conn) processEncryptedClientHello(h *clientHello, isRetry bool) (*clien
 		}) == -1 {
 			continue
 		}
-		if c.hpkeCtx == nil && len(h.echExt.Enc) > 0 {
+		needCtx := c.hpkeCtx == nil && len(h.echExt.Enc) > 0
+		if needCtx {
 			pk, err := ecdh.X25519().NewPrivateKey(key.PrivateKey)
 			if err != nil {
-				return nil, err
+				continue
 			}
 			privKey, err := hpke.NewDHKEMPrivateKey(pk)
 			if err != nil {
-				return nil, err
+				continue
 			}
 			kdf, err := hpke.NewKDF(h.echExt.CipherSuite.KDF)
 			if err != nil {
-				return nil, err
+				continue
 			}
 			aead, err := hpke.NewAEAD(h.echExt.CipherSuite.AEAD)
 			if err != nil {
-				return nil, err
+				continue
 			}
 			info := append([]byte("tls ech\x00"), key.Config...)
 			ctx, err := hpke.NewRecipient(h.echExt.Enc, privKey, kdf, aead, info)
@@ -230,6 +231,9 @@ func (c *Conn) processEncryptedClientHello(h *clientHello, isRetry bool) (*clien
 		}
 		innerBytes, err = c.hpkeCtx.Open(aad, h.echExt.Payload)
 		if err != nil {
+			if needCtx {
+				c.hpkeCtx = nil
+			}
 			continue
 		}
 		if string(cfg.PublicName) != h.ServerName {
