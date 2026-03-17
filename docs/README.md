@@ -5,7 +5,7 @@
 
 This repo implements a library to support Encrypted Client Hello with a Split Mode Topology, along with secure client-side name resolution and network connections.
 
-Split Mode Topology is defined in https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/#section-3.1
+Split Mode Topology is defined in [RFC 9849](https://datatracker.ietf.org/doc/html/rfc9849#section-3.1).
 
 ```mermaid
 flowchart LR
