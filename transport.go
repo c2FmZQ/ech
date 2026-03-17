@@ -22,16 +22,19 @@ var _ http.RoundTripper = (*Transport)(nil)
 // and refuses to execute plaintext HTTP transactions. This behavior can be changed
 // by modifiying the appropriate parameters.
 //
-// For example, to require ECH, set Dialer.RequireECH = true. To allow plaintext
-// HTTP, set HTTPTransport.DialContext = nil.
+// For example, to require ECH, set Dialer.RequireECH = true.
 func NewTransport() *Transport {
 	t := &Transport{
 		Resolver: DefaultResolver,
 		Dialer:   NewDialer(),
 	}
+	netDialer := newNetDialer()
 	t.HTTPTransport = &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return nil, errors.New("attempting to dial a plaintext tcp connection")
+			if t.Dialer.RequireECH {
+				return nil, errors.New("unable to use ECH with plaintext HTTP")
+			}
+			return netDialer.Dial(ctx, network, addr, nil)
 		},
 		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return t.Dialer.Dial(ctx, network, addr, t.TLSConfig)
