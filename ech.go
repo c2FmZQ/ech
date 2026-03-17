@@ -34,8 +34,7 @@ func WithDebug(f func(format string, arg ...any)) Option {
 }
 
 // NewConn returns a [Conn] that manages Encrypted Client Hello in TLS
-// connections, as defined in
-// https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/ .
+// connections, as defined in RFC 9849.
 //
 // Encrypted Client Hello handshake messages are decrypted and replaced with the
 // ClientHelloInner transparently. If decryption fails, the HelloClientOuter is
@@ -93,8 +92,7 @@ func NewConn(ctx context.Context, conn net.Conn, options ...Option) (outConn *Co
 	return outConn, nil
 }
 
-// Conn manages Encrypted Client Hello in TLS connections, as defined in
-// https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/ .
+// Conn manages Encrypted Client Hello in TLS connections, as defined in RFC 9849.
 type Conn struct {
 	net.Conn // The underlying connection
 

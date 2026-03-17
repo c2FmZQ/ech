@@ -2,7 +2,7 @@
 // Mode Topology (a.k.a. TLS Passthrough), along with secure client-side name
 // resolution and network connections.
 //
-// Split Mode Topology is defined in https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni/#section-3.1
+// Split Mode Topology is defined in https://datatracker.ietf.org/doc/html/rfc9849#section-3.1
 //
 //	Client ----> Client-Facing Server ----> Backend Servers
 //	             (public.example.com)       (private1.example.com)
