@@ -60,6 +60,22 @@ func NewDialer() *Dialer[*tls.Conn] {
 	}
 }
 
+// newNetDialer returns a plaintext [net.Conn] Dialer.
+func newNetDialer() *Dialer[net.Conn] {
+	d := &net.Dialer{
+		Resolver: &net.Resolver{
+			Dial: func(context.Context, string, string) (net.Conn, error) {
+				return nil, errors.New("not using go resolver")
+			},
+		},
+	}
+	return &Dialer[net.Conn]{
+		DialFunc: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+			return d.DialContext(ctx, network, addr)
+		},
+	}
+}
+
 // Dialer contains options for connecting to an address using Encrypted Client
 // Hello. It retrieves the Encrypted Client Hello (ECH) Config List
 // automatically from DNS, or from the remote server itself.
