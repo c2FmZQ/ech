@@ -48,7 +48,9 @@ func WithDebug(f func(format string, arg ...any)) Option {
 // The ctx is used while reading the initial ClientHello only. It is not used
 // after New returns.
 func NewConn(ctx context.Context, conn net.Conn, options ...Option) (outConn *Conn, err error) {
-	defer convertErrorsToAlerts(conn, err)
+	defer func() {
+		convertErrorsToAlerts(conn, err)
+	}()
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -237,6 +239,7 @@ func (c *Conn) processEncryptedClientHello(h *clientHello, isRetry bool) (*clien
 		if string(cfg.PublicName) != h.ServerName {
 			return nil, ErrIllegalParameter
 		}
+		break
 	}
 	if innerBytes == nil {
 		// Section 7.1.1, regarding a retried ClientHello:
@@ -318,12 +321,20 @@ func (c *Conn) processEncryptedClientHello(h *clientHello, isRetry bool) (*clien
 func (c *Conn) Read(b []byte) (int, error) {
 	if !c.readPassthrough && len(c.readBuf) == 0 && c.readErr == nil {
 		r, err := readRecord(c.Conn)
-		if len(r) >= 5 {
-			if r[0] == 22 {
-				c.debugf("Read %s(%d) %s\n", contentType(r[0]), r[0], handshakeMessageTypes[r[5]])
-			} else {
-				c.debugf("Read %s(%d)\n", contentType(r[0]), r[0])
-			}
+		switch {
+		case len(r) > 5 && r[0] == 22:
+			c.debugf("Read %s(%d) %s\n", contentType(r[0]), r[0], handshakeMessageTypes[r[5]])
+		case len(r) >= 5:
+			c.debugf("Read %s(%d)\n", contentType(r[0]), r[0])
+		}
+		if err == nil && r[0] == 22 && len(r) == 5 {
+			// RFC 8446, Section 5.1
+			// Implementations MUST NOT send zero-length fragments of
+			// Handshake types.
+			err = fmt.Errorf("%w: zero-length handshake record", ErrUnexpectedMessage)
+			c.readErr = err
+			convertErrorsToAlerts(c, err)
+			return 0, err
 		}
 		switch {
 		case err != nil:
@@ -388,8 +399,11 @@ func (c *Conn) Write(b []byte) (int, error) {
 }
 
 func (c *Conn) inspectWrite(record []byte) error {
-	recType := c.writeBuf[0]
-	msgType := c.writeBuf[5]
+	recType := record[0]
+	var msgType uint8
+	if len(record) > 5 {
+		msgType = record[5]
+	}
 	if recType == 22 {
 		c.debugf("Write %s(%d) %s\n", contentType(recType), recType, handshakeMessageTypes[msgType])
 	} else {
@@ -399,7 +413,7 @@ func (c *Conn) inspectWrite(record []byte) error {
 	case recType == 23:
 		c.writePassthrough = true
 	case recType == 22 && msgType == 2: // Handshake / ServerHello
-		h, err := parseServerHello(c.writeBuf[5:])
+		h, err := parseServerHello(record[5:])
 		if err != nil {
 			return fmt.Errorf("%w: parseServerHello: %v\n", ErrDecodeError, err)
 		}
