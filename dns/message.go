@@ -493,6 +493,10 @@ func (d decoder) name(s *cryptobyte.String) (string, error) {
 
 func (d decoder) nameLabels(s *cryptobyte.String) ([]string, error) {
 	var labels []string
+	// The total length of a domain name in wire format, including the
+	// length octets and the terminating zero-length label, is limited to
+	// 255 octets. RFC 1035 Section 3.1
+	size := 1
 	for {
 		for !s.Empty() && (*s)[0]&0xc0 == 0xc0 { // pointer
 			current := uintptr(unsafe.Pointer(&(*s)[0]))
@@ -513,6 +517,12 @@ func (d decoder) nameLabels(s *cryptobyte.String) ([]string, error) {
 		}
 		if len(name) == 0 {
 			break
+		}
+		if len(name) > 63 {
+			return nil, ErrDecodeError
+		}
+		if size += len(name) + 1; size > 255 {
+			return nil, ErrDecodeError
 		}
 		labels = append(labels, string(name))
 	}

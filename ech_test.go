@@ -716,3 +716,122 @@ func TestValidInnerAES(t *testing.T) {
 		})
 	}
 }
+
+// TestZeroLengthHandshakeRecord verifies that a zero-length handshake record
+// received after an accepted ClientHello is rejected without panicking.
+func TestZeroLengthHandshakeRecord(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey := privKey.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	inner := newClientHello("private", "echExtInner", "tls1.3")
+	outer := newClientHello("public", "tls1.3", config, pubKey, inner)
+	c := newFakeConn(append(outer.bytes(), 22, 3, 3, 0, 0))
+
+	conn, err := NewConn(t.Context(), c, WithKeys(keys), WithDebug(t.Logf))
+	if err != nil {
+		t.Fatalf("NewConn: %v", err)
+	}
+	if !conn.ECHAccepted() {
+		t.Fatal("ECHAccepted = false, want true")
+	}
+	if _, err := readRecord(conn); err != nil {
+		t.Fatalf("ClientHello: %v", err)
+	}
+	if _, err := conn.Read(make([]byte, 1024)); !errors.Is(err, ErrUnexpectedMessage) {
+		t.Fatalf("Read: %v, want ErrUnexpectedMessage", err)
+	}
+	if got, want := c.Writer.(*bytes.Buffer).Bytes(), []byte{0x15, 0x03, 0x03, 0x00, 0x02, 2, 10}; !bytes.Equal(got, want) {
+		t.Errorf("Alert = %v, want %v", got, want)
+	}
+}
+
+// TestZeroLengthHandshakeRecordWrite verifies that writing a zero-length
+// handshake record doesn't panic.
+func TestZeroLengthHandshakeRecordWrite(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey := privKey.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	inner := newClientHello("private", "echExtInner", "tls1.3")
+	outer := newClientHello("public", "tls1.3", config, pubKey, inner)
+	c := newFakeConn(outer.bytes())
+
+	conn, err := NewConn(t.Context(), c, WithKeys(keys))
+	if err != nil {
+		t.Fatalf("NewConn: %v", err)
+	}
+	if n, err := conn.Write([]byte{22, 3, 3, 0, 0}); err != nil || n != 5 {
+		t.Fatalf("Write: %d, %v", n, err)
+	}
+}
+
+// TestKeysWithSameConfigID verifies that ECH is accepted when multiple keys
+// share the same config ID, regardless of the order of the keys.
+func TestKeysWithSameConfigID(t *testing.T) {
+	privKeyA, configA, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	privKeyB, configB, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	keyA := Key{Config: configA, PrivateKey: privKeyA.Bytes()}
+	keyB := Key{Config: configB, PrivateKey: privKeyB.Bytes()}
+
+	for _, tc := range []struct {
+		name string
+		keys []Key
+	}{
+		{"A,B", []Key{keyA, keyB}},
+		{"B,A", []Key{keyB, keyA}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inner := newClientHello("private", "echExtInner", "tls1.3")
+			outer := newClientHello("public", "tls1.3", configA, privKeyA.PublicKey(), inner)
+			c := newFakeConn(outer.bytes())
+
+			conn, err := NewConn(t.Context(), c, WithKeys(tc.keys))
+			if err != nil {
+				t.Fatalf("NewConn: %v", err)
+			}
+			if !conn.ECHAccepted() {
+				t.Fatal("ECHAccepted = false, want true")
+			}
+			if buf, err := readRecord(conn); err != nil {
+				t.Fatalf("ClientHello: %v", err)
+			} else if got, want := buf, inner.bytes(); !bytes.Equal(got, want) {
+				t.Fatalf("ClientHello = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// TestNewConnSendsAlert verifies that NewConn sends an alert when it returns
+// an error.
+func TestNewConnSendsAlert(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey := privKey.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	inner := newClientHello("private", "echExtInner", "tls1.3")
+	outer := newClientHello("private", "tls1.3", config, pubKey, inner)
+	c := newFakeConn(outer.bytes())
+
+	if _, err := NewConn(t.Context(), c, WithKeys(keys)); !errors.Is(err, ErrIllegalParameter) {
+		t.Fatalf("NewConn: %v, want ErrIllegalParameter", err)
+	}
+	if got, want := c.Writer.(*bytes.Buffer).Bytes(), []byte{0x15, 0x03, 0x03, 0x00, 0x02, 2, 47}; !bytes.Equal(got, want) {
+		t.Errorf("Alert = %v, want %v", got, want)
+	}
+}

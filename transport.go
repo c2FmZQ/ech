@@ -18,11 +18,13 @@ var _ http.RoundTripper = (*Transport)(nil)
 // NewTransport returns a [Transport] that is ready to be used with
 // [http.Client].
 //
-// By default, the returned [Transport] uses Encrypted Client Hello opportunistically
-// and refuses to execute plaintext HTTP transactions. This behavior can be changed
-// by modifiying the appropriate parameters.
+// By default, the returned [Transport] uses Encrypted Client Hello opportunistically.
+// Plaintext HTTP requests are upgraded to HTTPS when the hostname has a HTTPS RR.
+// Otherwise, they are sent in plaintext. This behavior can be changed by
+// modifiying the appropriate parameters.
 //
-// For example, to require ECH, set Dialer.RequireECH = true.
+// For example, to require ECH, set Dialer.RequireECH = true. This also refuses
+// to execute plaintext HTTP transactions.
 func NewTransport() *Transport {
 	t := &Transport{
 		Resolver: DefaultResolver,

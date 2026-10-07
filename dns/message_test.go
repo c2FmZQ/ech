@@ -568,3 +568,47 @@ func TestResponseCode(t *testing.T) {
 		t.Errorf("ResponseCode() = %d, want %d", got, want)
 	}
 }
+
+func TestNameTooLong(t *testing.T) {
+	header := []byte{0x00, 0x00, 0x81, 0x80, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	label := func(n int) []byte {
+		return append([]byte{byte(n)}, strings.Repeat("a", n)...)
+	}
+	question := func(labels ...[]byte) []byte {
+		var b []byte
+		for _, l := range labels {
+			b = append(b, l...)
+		}
+		return append(b, 0x00, 0x00, 0x01, 0x00, 0x01)
+	}
+	cat := func(parts ...[]byte) []byte {
+		var b []byte
+		for _, p := range parts {
+			b = append(b, p...)
+		}
+		return b
+	}
+
+	// 3*(63+1) + (61+1) + 1 = 255 octets.
+	if _, err := DecodeMessage(cat(header, question(label(63), label(63), label(63), label(61)))); err != nil {
+		t.Errorf("DecodeMessage(255 octets) = %v, want nil", err)
+	}
+	// 3*(63+1) + (62+1) + 1 = 256 octets.
+	if _, err := DecodeMessage(cat(header, question(label(63), label(63), label(63), label(62)))); err != ErrDecodeError {
+		t.Errorf("DecodeMessage(256 octets) = %v, want ErrDecodeError", err)
+	}
+	// A label longer than 63 octets.
+	if _, err := DecodeMessage(cat(header, question(label(64)))); err != ErrDecodeError {
+		t.Errorf("DecodeMessage(64-octet label) = %v, want ErrDecodeError", err)
+	}
+
+	// The question name is 3*(63+1) + 1 = 193 octets. The answer's name is
+	// a 63-octet label followed by a pointer to the question name, for a
+	// total of 64 + 193 = 257 octets.
+	m := cat(header, question(label(63), label(63), label(63)))
+	m[7] = 1 // anCount
+	m = cat(m, label(63), []byte{0xc0, 0x0c}, []byte{0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x28, 0x00, 0x04, 1, 2, 3, 4})
+	if _, err := DecodeMessage(m); err != ErrDecodeError {
+		t.Errorf("DecodeMessage(compressed 257 octets) = %v, want ErrDecodeError", err)
+	}
+}
