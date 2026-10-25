@@ -9,6 +9,7 @@ import (
 	"io"
 	"iter"
 	"net"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -113,6 +114,10 @@ type Dialer[T any] struct {
 	// DialFunc must be set to a function that will be used to connect to
 	// a network address. NewDialer automatically sets this value.
 	DialFunc func(ctx context.Context, network, addr string, tc *tls.Config) (T, error)
+	// CloseFunc is an optional function used to close a connection when
+	// another concurrent connection attempt has already succeeded. If nil,
+	// io.Closer is used when implemented by T.
+	CloseFunc func(T) error
 }
 
 // Dial connects to the given network and address. It uses HTTPS DNS records to
@@ -197,8 +202,17 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 	sendConn := func(conn T) {
 		select {
 		case <-ctx.Done():
-			if c, ok := any(conn).(io.Closer); ok {
+			if d.CloseFunc != nil {
+				d.CloseFunc(conn)
+			} else if c, ok := any(conn).(io.Closer); ok {
 				c.Close()
+			} else if v := reflect.ValueOf(conn); v.IsValid() {
+				if m := v.MethodByName("CloseWithError"); m.IsValid() {
+					t := m.Type()
+					if t.NumIn() == 2 && t.In(0).Kind() == reflect.Uint64 && t.In(1).Kind() == reflect.String {
+						m.Call([]reflect.Value{reflect.Zero(t.In(0)), reflect.ValueOf("")})
+					}
+				}
 			}
 		case connChan <- conn:
 		}
@@ -280,17 +294,22 @@ func (d *Dialer[T]) Dial(ctx context.Context, network, addr string, tc *tls.Conf
 
 	go func() {
 		first := true
+	loop:
 		for target := range targets {
 			if !first {
 				select {
 				case <-ctx.Done():
-					break
+					break loop
 				case <-wakeChan:
 				case <-time.After(delay):
 				}
 			}
 			first = false
-			targetChan <- target
+			select {
+			case <-ctx.Done():
+				break loop
+			case targetChan <- target:
+			}
 		}
 		close(targetChan)
 	}()

@@ -12,9 +12,12 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/hashicorp/go-retryablehttp"
 )
+
+const maxResponseSize = 1 << 20 // 1 MB
 
 var (
 	cloudflareBaseURL = url.URL{
@@ -104,6 +107,7 @@ var _ ECHPublisher = (*CloudflarePublisher)(nil)
 type CloudflarePublisher struct {
 	baseURL  url.URL
 	client   *retryablehttp.Client
+	mu       sync.Mutex
 	zoneIDs  map[string]string
 	apiToken string
 }
@@ -205,7 +209,9 @@ func (cf *CloudflarePublisher) PublishECH(ctx context.Context, records []Target,
 }
 
 func (cf *CloudflarePublisher) getZoneData(ctx context.Context, zone string, data map[zoneName]idData) error {
+	cf.mu.Lock()
 	zoneID, exists := cf.zoneIDs[zone]
+	cf.mu.Unlock()
 	if !exists {
 		u := cf.baseURL
 		q := u.Query()
@@ -225,7 +231,10 @@ func (cf *CloudflarePublisher) getZoneData(ctx context.Context, zone string, dat
 			return fmt.Errorf("status code %d", resp.StatusCode)
 		}
 
-		b, _ := io.ReadAll(resp.Body)
+		b, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+		if err != nil {
+			return err
+		}
 		var result struct {
 			Success bool     `json:"success"`
 			Errors  cfErrors `json:"errors"`
@@ -243,7 +252,9 @@ func (cf *CloudflarePublisher) getZoneData(ctx context.Context, zone string, dat
 		if len(result.Result) > 0 {
 			zoneID = result.Result[0].ID
 		}
+		cf.mu.Lock()
 		cf.zoneIDs[zone] = zoneID
+		cf.mu.Unlock()
 	}
 	if zoneID == "" {
 		return errNotFound
@@ -266,11 +277,14 @@ func (cf *CloudflarePublisher) getZoneData(ctx context.Context, zone string, dat
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
+		b, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+		resp.Body.Close()
 		if resp.StatusCode != 200 {
 			return fmt.Errorf("status code %d", resp.StatusCode)
 		}
-		b, _ := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return readErr
+		}
 		var result struct {
 			Success bool     `json:"success"`
 			Errors  cfErrors `json:"errors"`
@@ -326,7 +340,10 @@ func (cf *CloudflarePublisher) updateRecord(ctx context.Context, zoneID, recordI
 		return fmt.Errorf("status code %d", resp.StatusCode)
 	}
 
-	b, _ = io.ReadAll(resp.Body)
+	b, err = io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	if err != nil {
+		return err
+	}
 	var result struct {
 		Success bool     `json:"success"`
 		Errors  cfErrors `json:"errors"`

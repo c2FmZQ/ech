@@ -1,10 +1,17 @@
 package ech
 
 import (
+	"errors"
+	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -330,5 +337,135 @@ func TestResolveResultTargets(t *testing.T) {
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("[%d] Got %#v, want %#v", i, got, tc.want)
 		}
+	}
+}
+
+func TestResolveTargetsConcurrentALPN(t *testing.T) {
+	ts := testutil.StartTestDNSServer(t, []dns.RR{
+		{
+			Name: "example.com", Type: 1, Class: 1, TTL: 60,
+			Data: net.IP{192, 168, 0, 1},
+		},
+		{
+			Name: "example.com", Type: 65, Class: 1, TTL: 60,
+			Data: dns.HTTPS{
+				Priority:      1,
+				ALPN:          []string{"h3", "h2", "foo"},
+				NoDefaultALPN: false,
+				ECH:           []byte{1, 2, 3},
+			},
+		},
+	})
+	defer ts.Close()
+
+	resolver := &Resolver{
+		baseURL: url.URL{Scheme: "http", Host: ts.Listener.Addr().String(), Path: "/dns-query"},
+		cache:   newResolverCache(),
+	}
+
+	wantALPN := []string{"h3", "h2", "foo", "http/1.1"}
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				res, err := resolver.Resolve(t.Context(), "example.com")
+				if err != nil {
+					t.Errorf("Resolve: %v", err)
+					return
+				}
+				for _, r := range []ResolveResult{res, res.clone()} {
+					for target := range r.Targets("tcp") {
+						if !slices.Equal(target.ALPN, wantALPN) {
+							t.Errorf("target.ALPN = %v, want %v", target.ALPN, wantALPN)
+							return
+						}
+					}
+				}
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestResolveInvalidSchemeAndSVCBName(t *testing.T) {
+	ts := testutil.StartTestDNSServer(t, nil)
+	defer ts.Close()
+	resolver := &Resolver{
+		baseURL: url.URL{Scheme: "http", Host: ts.Listener.Addr().String(), Path: "/dns-query"},
+	}
+
+	longHost := fmt.Sprintf("%s.%s.%s.%s.example.com",
+		strings.Repeat("a", 60),
+		strings.Repeat("b", 60),
+		strings.Repeat("c", 60),
+		strings.Repeat("d", 55),
+	) // 60+1+60+1+60+1+55+1+11 = 249 bytes (<= 253), but with _8443._https. prefix it exceeds 255.
+
+	for _, name := range []string{
+		strings.Repeat("a", 63) + "://example.com",
+		strings.Repeat("a", 300) + "://example.com:8443",
+		"https://" + longHost + ":8443",
+	} {
+		if _, err := resolver.Resolve(t.Context(), name); !errors.Is(err, ErrInvalidName) {
+			t.Errorf("Resolve(%q) = %v, want ErrInvalidName", name, err)
+		}
+	}
+}
+
+func TestResolveOutOfOrderCNAME(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		defer req.Body.Close()
+		body, _ := io.ReadAll(req.Body)
+		qq, err := dns.DecodeMessage(body)
+		if err != nil {
+			t.Errorf("dns.DecodeMessage: %v", err)
+			return
+		}
+		qq.QR = 1
+		q := qq.Question[0]
+		switch q.Name {
+		case "alias.example.com":
+			if q.Type == 1 {
+				// Return A record BEFORE CNAME record, and multi-hop CNAMEs in reverse order.
+				qq.Answer = []dns.RR{
+					{Name: "target.example.com", Type: 1, Class: 1, TTL: 60, Data: net.IP{192, 168, 0, 99}},
+					{Name: "mid.example.com", Type: 5, Class: 1, TTL: 60, Data: "target.example.com"},
+					{Name: "alias.example.com", Type: 5, Class: 1, TTL: 60, Data: "mid.example.com"},
+				}
+			}
+		case "loop.example.com":
+			qq.Answer = []dns.RR{
+				{Name: "loop2.example.com", Type: 5, Class: 1, TTL: 60, Data: "loop.example.com"},
+				{Name: "loop.example.com", Type: 5, Class: 1, TTL: 60, Data: "loop2.example.com"},
+			}
+		}
+		w.Write(qq.Bytes())
+	}))
+	defer ts.Close()
+
+	resolver := &Resolver{
+		baseURL: url.URL{Scheme: "http", Host: ts.Listener.Addr().String(), Path: "/dns-query"},
+	}
+
+	got, err := resolver.Resolve(t.Context(), "alias.example.com")
+	if err != nil {
+		t.Fatalf("Resolve(alias.example.com): %v", err)
+	}
+	want := ResolveResult{
+		Port:    443,
+		Address: []net.IP{{192, 168, 0, 99}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Resolve(alias.example.com) = %#v, want %#v", got, want)
+	}
+
+	gotLoop, err := resolver.Resolve(t.Context(), "loop.example.com")
+	if err != nil {
+		t.Fatalf("Resolve(loop.example.com): %v", err)
+	}
+	if len(gotLoop.Address) != 0 {
+		t.Errorf("Resolve(loop.example.com) Address = %v, want empty", gotLoop.Address)
 	}
 }

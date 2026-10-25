@@ -98,7 +98,7 @@ func (c *clientHello) marshal(aad bool) ([]byte, error) {
 				for _, ext := range c.Extensions {
 					b.AddUint16(ext.Type)
 					b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
-						if aad && ext.Type == 0xfe0d {
+						if aad && ext.Type == 0xfe0d && c.echExt != nil && len(ext.Data) >= len(c.echExt.Payload) {
 							n := len(ext.Data) - len(c.echExt.Payload)
 							b.AddBytes(ext.Data[:n])
 							b.AddBytes(make([]byte, len(ext.Data[n:])))
@@ -231,7 +231,12 @@ func (c *clientHello) parseExtensions() error {
 	c.tls13 = false
 	c.echExt = nil
 
+	seen := make(map[uint16]bool, len(c.Extensions))
 	for _, ext := range c.Extensions {
+		if seen[ext.Type] {
+			return fmt.Errorf("%w: duplicate extension 0x%x", ErrIllegalParameter, ext.Type)
+		}
+		seen[ext.Type] = true
 		data := cryptobyte.String(ext.Data)
 		switch ext.Type {
 		case 0:
@@ -256,7 +261,7 @@ func (c *clientHello) parseExtensions() error {
 			// } ServerNameList;
 
 			var serverNameList cryptobyte.String
-			if !data.ReadUint16LengthPrefixed(&serverNameList) {
+			if !data.ReadUint16LengthPrefixed(&serverNameList) || !data.Empty() {
 				return fmt.Errorf("%w: serverNameList", ErrDecodeError)
 			}
 			for !serverNameList.Empty() {
@@ -291,7 +296,7 @@ func (c *clientHello) parseExtensions() error {
 			//      ProtocolName protocol_name_list<2..2^16-1>
 			//  } ProtocolNameList;
 			var protocolNameList cryptobyte.String
-			if !data.ReadUint16LengthPrefixed(&protocolNameList) {
+			if !data.ReadUint16LengthPrefixed(&protocolNameList) || !data.Empty() {
 				return fmt.Errorf("%w: protocol name list", ErrDecodeError)
 			}
 			for !protocolNameList.Empty() {
@@ -312,7 +317,7 @@ func (c *clientHello) parseExtensions() error {
 			//   };
 			// } SupportedVersions;
 			var versions cryptobyte.String
-			if !data.ReadUint8LengthPrefixed(&versions) {
+			if !data.ReadUint8LengthPrefixed(&versions) || !data.Empty() {
 				return fmt.Errorf("%w: supported versions", ErrDecodeError)
 			}
 			for !versions.Empty() {
@@ -379,6 +384,9 @@ func (c *clientHello) parseExtensions() error {
 					return fmt.Errorf("%w: ech ext payload", ErrDecodeError)
 				}
 				c.echExt.Payload = slices.Clone(v)
+			}
+			if !data.Empty() {
+				return fmt.Errorf("%w: ech ext trailing data", ErrDecodeError)
 			}
 		}
 	}
