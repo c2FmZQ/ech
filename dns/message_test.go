@@ -611,4 +611,17 @@ func TestNameTooLong(t *testing.T) {
 	if _, err := DecodeMessage(m); err != ErrDecodeError {
 		t.Errorf("DecodeMessage(compressed 257 octets) = %v, want ErrDecodeError", err)
 	}
+
+	for _, badName := range []string{
+		strings.Repeat("a", 64) + ".example.com",
+		strings.Repeat("a", 300) + ".example.com",
+		fmt.Sprintf("%s.%s.%s.%s", strings.Repeat("a", 63), strings.Repeat("b", 63), strings.Repeat("c", 63), strings.Repeat("d", 62)),
+	} {
+		msg := Message{
+			Question: []Question{{Name: badName, Type: 1, Class: 1}},
+		}
+		if b := msg.Bytes(); b != nil {
+			t.Errorf("Message{Name: %q}.Bytes() = %x, want nil", badName, b)
+		}
+	}
 }

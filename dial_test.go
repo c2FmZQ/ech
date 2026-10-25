@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -273,6 +276,168 @@ func TestDialer(t *testing.T) {
 		want := "h2.example.com: unable to get ECH config list"
 		if got.Error() != want {
 			t.Errorf("Got %q, want %q", got, want)
+		}
+	})
+}
+
+type fakeCloserConn struct {
+	addr   string
+	closed *atomic.Int32
+}
+
+func (c *fakeCloserConn) Close() error {
+	c.closed.Add(1)
+	return nil
+}
+
+type fakeAppErrorCode uint64
+
+type fakeQUICConn struct {
+	addr   string
+	closed *atomic.Int32
+}
+
+func (c *fakeQUICConn) CloseWithError(_ fakeAppErrorCode, _ string) error {
+	c.closed.Add(1)
+	return nil
+}
+
+func TestDialerStopsAndClosesLosingConns(t *testing.T) {
+	var resolvedH2 atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		defer req.Body.Close()
+		body, _ := io.ReadAll(req.Body)
+		qq, err := dns.DecodeMessage(body)
+		if err != nil {
+			t.Errorf("dns.DecodeMessage: %v", err)
+			return
+		}
+		qq.QR = 1
+		q := qq.Question[0]
+		switch q.Name {
+		case "h1.example.com":
+			if q.Type == 1 {
+				qq.Answer = []dns.RR{
+					{Name: "h1.example.com", Type: 1, Class: 1, TTL: 60, Data: net.IP{1, 0, 0, 1}},
+					{Name: "h1.example.com", Type: 1, Class: 1, TTL: 60, Data: net.IP{1, 0, 0, 2}},
+					{Name: "h1.example.com", Type: 1, Class: 1, TTL: 60, Data: net.IP{1, 0, 0, 3}},
+				}
+			}
+		case "h2.example.com":
+			resolvedH2.Add(1)
+			if q.Type == 1 {
+				qq.Answer = []dns.RR{
+					{Name: "h2.example.com", Type: 1, Class: 1, TTL: 60, Data: net.IP{2, 0, 0, 1}},
+				}
+			}
+		}
+		w.Write(qq.Bytes())
+	}))
+	defer ts.Close()
+
+	t.Run("IOCloser", func(t *testing.T) {
+		resolvedH2.Store(0)
+		var dialed atomic.Int32
+		var closedConns atomic.Int32
+		loseDone := make(chan struct{})
+
+		dialer := &Dialer[*fakeCloserConn]{
+			Resolver: &Resolver{
+				baseURL: url.URL{Scheme: "http", Host: ts.Listener.Addr().String(), Path: "/dns-query"},
+			},
+			MaxConcurrency:   3,
+			ConcurrencyDelay: 20 * time.Millisecond,
+			Timeout:          time.Second,
+			DialFunc: func(ctx context.Context, network, addr string, tc *tls.Config) (*fakeCloserConn, error) {
+				dialed.Add(1)
+				switch addr {
+				case "1.0.0.1:443":
+					time.Sleep(35 * time.Millisecond)
+					return &fakeCloserConn{addr: addr, closed: &closedConns}, nil
+				case "1.0.0.2:443":
+					time.Sleep(55 * time.Millisecond)
+					defer close(loseDone)
+					return &fakeCloserConn{addr: addr, closed: &closedConns}, nil
+				default:
+					return &fakeCloserConn{addr: addr, closed: &closedConns}, nil
+				}
+			},
+		}
+
+		conn, err := dialer.Dial(t.Context(), "tcp", "h1.example.com,h2.example.com", nil)
+		if err != nil {
+			t.Fatalf("Dial: %v", err)
+		}
+		if conn.addr != "1.0.0.1:443" {
+			t.Errorf("conn.addr = %q, want 1.0.0.1:443", conn.addr)
+		}
+
+		<-loseDone
+		deadline := time.Now().Add(time.Second)
+		for closedConns.Load() == 0 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if got := closedConns.Load(); got != 1 {
+			t.Errorf("closedConns = %d, want 1", got)
+		}
+		if got := resolvedH2.Load(); got != 0 {
+			t.Errorf("resolvedH2 = %d, want 0", got)
+		}
+		if got := dialed.Load(); got != 2 {
+			t.Errorf("dialed = %d, want 2", got)
+		}
+	})
+
+	t.Run("CloseWithError", func(t *testing.T) {
+		resolvedH2.Store(0)
+		var dialed atomic.Int32
+		var closedConns atomic.Int32
+		loseDone := make(chan struct{})
+
+		dialer := &Dialer[*fakeQUICConn]{
+			Resolver: &Resolver{
+				baseURL: url.URL{Scheme: "http", Host: ts.Listener.Addr().String(), Path: "/dns-query"},
+			},
+			MaxConcurrency:   3,
+			ConcurrencyDelay: 20 * time.Millisecond,
+			Timeout:          time.Second,
+			DialFunc: func(ctx context.Context, network, addr string, tc *tls.Config) (*fakeQUICConn, error) {
+				dialed.Add(1)
+				switch addr {
+				case "1.0.0.1:443":
+					time.Sleep(35 * time.Millisecond)
+					return &fakeQUICConn{addr: addr, closed: &closedConns}, nil
+				case "1.0.0.2:443":
+					time.Sleep(55 * time.Millisecond)
+					defer close(loseDone)
+					return &fakeQUICConn{addr: addr, closed: &closedConns}, nil
+				default:
+					return &fakeQUICConn{addr: addr, closed: &closedConns}, nil
+				}
+			},
+		}
+
+		conn, err := dialer.Dial(t.Context(), "udp", "h1.example.com,h2.example.com", nil)
+		if err != nil {
+			t.Fatalf("Dial: %v", err)
+		}
+		if conn.addr != "1.0.0.1:443" {
+			t.Errorf("conn.addr = %q, want 1.0.0.1:443", conn.addr)
+		}
+
+		<-loseDone
+		deadline := time.Now().Add(time.Second)
+		for closedConns.Load() == 0 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if got := closedConns.Load(); got != 1 {
+			t.Errorf("closedConns = %d, want 1", got)
+		}
+		if got := resolvedH2.Load(); got != 0 {
+			t.Errorf("resolvedH2 = %d, want 0", got)
+		}
+		if got := dialed.Load(); got != 2 {
+			t.Errorf("dialed = %d, want 2", got)
 		}
 	})
 }

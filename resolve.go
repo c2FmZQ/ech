@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"iter"
 	"log"
-	"maps"
 	"net"
 	"net/netip"
 	"net/url"
@@ -58,12 +57,34 @@ type Target struct {
 	ALPN    []string
 }
 
+func cloneHTTPS(h dns.HTTPS) dns.HTTPS {
+	h.ALPN = slices.Clone(h.ALPN)
+	h.IPv4Hint = slices.Clone(h.IPv4Hint)
+	h.IPv6Hint = slices.Clone(h.IPv6Hint)
+	h.ECH = slices.Clone(h.ECH)
+	return h
+}
+
 func (r ResolveResult) clone() ResolveResult {
+	var https []dns.HTTPS
+	if r.HTTPS != nil {
+		https = make([]dns.HTTPS, len(r.HTTPS))
+		for i, h := range r.HTTPS {
+			https[i] = cloneHTTPS(h)
+		}
+	}
+	var additional map[string][]net.IP
+	if r.Additional != nil {
+		additional = make(map[string][]net.IP, len(r.Additional))
+		for k, v := range r.Additional {
+			additional[k] = slices.Clone(v)
+		}
+	}
 	return ResolveResult{
 		Port:       r.Port,
 		Address:    slices.Clone(r.Address),
-		HTTPS:      slices.Clone(r.HTTPS),
-		Additional: maps.Clone(r.Additional),
+		HTTPS:      https,
+		Additional: additional,
 	}
 }
 
@@ -112,7 +133,7 @@ func (r ResolveResult) Targets(network string) iter.Seq[Target] {
 			if h.Port > 0 {
 				port = h.Port
 			}
-			alpn := h.ALPN
+			alpn := slices.Clone(h.ALPN)
 			if !h.NoDefaultALPN {
 				alpn = append(alpn, "http/1.1")
 			}
@@ -344,11 +365,22 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 	}
 
 	// https://www.rfc-editor.org/rfc/rfc9460.html#section-2.3
+	if len(scheme) > 62 {
+		return result, ErrInvalidName
+	}
 	svcbName := name
 	if result.Port != 80 && result.Port != 443 {
 		svcbName = fmt.Sprintf("_%d._%s.%s", result.Port, scheme, name)
 	} else if scheme != "https" {
 		svcbName = fmt.Sprintf("_%s.%s", scheme, name)
+	}
+	if len(svcbName) > 255 || len(strings.TrimSuffix(svcbName, ".")) > 253 {
+		return result, ErrInvalidName
+	}
+	for _, p := range strings.Split(strings.TrimSuffix(svcbName, "."), ".") {
+		if len(p) > 63 {
+			return result, ErrInvalidName
+		}
 	}
 
 	// First, resolve HTTPS Aliases.
@@ -385,7 +417,7 @@ func (r *Resolver) Resolve(ctx context.Context, name string) (ResolveResult, err
 			}
 		}
 		for _, v := range https {
-			result.HTTPS = append(result.HTTPS, v.(dns.HTTPS))
+			result.HTTPS = append(result.HTTPS, cloneHTTPS(v.(dns.HTTPS)))
 		}
 		sort.Slice(result.HTTPS, func(i, j int) bool {
 			return result.HTTPS[i].Priority < result.HTTPS[j].Priority
@@ -510,20 +542,44 @@ func (r *Resolver) resolveOneNoCache(ctx context.Context, name, typ string) ([]a
 		}
 		return nil, 0, fmt.Errorf("%s (%s): response code %d", name, typ, rc)
 	}
-	var res []any
 	var ttl uint32
 	want := strings.TrimSuffix(name, ".")
+	seenCNAME := map[string]bool{want: true}
+	for range 8 {
+		found := false
+		for _, a := range result.Answer {
+			if a.Type != 5 { // CNAME
+				continue
+			}
+			if strings.TrimSuffix(a.Name, ".") == want {
+				if ttl == 0 || ttl > a.TTL {
+					ttl = a.TTL
+				}
+				target, ok := a.Data.(string)
+				if !ok {
+					break
+				}
+				want = strings.TrimSuffix(target, ".")
+				if seenCNAME[want] {
+					break
+				}
+				seenCNAME[want] = true
+				found = true
+				break
+			}
+		}
+		if !found {
+			break
+		}
+	}
+	var res []any
+	wantType := dns.RRType(typ)
 	for _, a := range result.Answer {
 		if ttl == 0 || ttl > a.TTL {
 			ttl = a.TTL
 		}
-		name := strings.TrimSuffix(a.Name, ".")
-		if name == want && a.Type == dns.RRType(typ) {
+		if strings.TrimSuffix(a.Name, ".") == want && a.Type == wantType {
 			res = append(res, a.Data)
-		}
-		if name == want && a.Type == 5 { // CNAME
-			want = strings.TrimSuffix(a.Data.(string), ".")
-			continue
 		}
 	}
 	return res, ttl, nil

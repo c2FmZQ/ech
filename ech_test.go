@@ -835,3 +835,132 @@ func TestNewConnSendsAlert(t *testing.T) {
 		t.Errorf("Alert = %v, want %v", got, want)
 	}
 }
+
+// TestDuplicateExtensions verifies that a ClientHello with duplicate extensions
+// (including a short inner 0xfe0d followed by an outer 0xfe0d) is rejected with
+// ErrIllegalParameter and does not panic.
+func TestDuplicateExtensions(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey := privKey.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	t.Run("DuplicateECH", func(t *testing.T) {
+		inner := newClientHello("private", "echExtInner", "tls1.3")
+		outer := newClientHello("public", "tls1.3", config, pubKey, inner)
+		// Prepend a 1-byte inner 0xfe0d extension before the valid outer 0xfe0d extension.
+		outer.clientHello.Extensions = append(
+			[]extension{{Type: 0xfe0d, Data: []byte{0x01}}},
+			outer.clientHello.Extensions...,
+		)
+		raw, err := outer.clientHello.Marshal()
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		c := newFakeConn(raw)
+		if _, err := NewConn(t.Context(), c, WithKeys(keys)); !errors.Is(err, ErrIllegalParameter) {
+			t.Fatalf("NewConn: %v, want ErrIllegalParameter", err)
+		}
+		if got, want := c.Writer.(*bytes.Buffer).Bytes(), []byte{0x15, 0x03, 0x03, 0x00, 0x02, 2, 47}; !bytes.Equal(got, want) {
+			t.Errorf("Alert = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("DuplicateSupportedVersions", func(t *testing.T) {
+		outer := newClientHello("public", "tls1.3")
+		outer.addSupportedVersionTLS13()
+		raw, err := outer.clientHello.Marshal()
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		c := newFakeConn(raw)
+		if _, err := NewConn(t.Context(), c, WithKeys(keys)); !errors.Is(err, ErrIllegalParameter) {
+			t.Fatalf("NewConn: %v, want ErrIllegalParameter", err)
+		}
+	})
+}
+
+// TestExtensionTrailingBytes verifies that extensions with trailing bytes after
+// their length-prefixed payloads are rejected with ErrDecodeError.
+func TestExtensionTrailingBytes(t *testing.T) {
+	privKey, config, err := NewConfig(1, []byte("public.example.com"))
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	pubKey := privKey.PublicKey()
+	keys := []Key{{Config: config, PrivateKey: privKey.Bytes()}}
+
+	for _, tc := range []struct {
+		name string
+		mod  func(*clientHello)
+	}{
+		{
+			name: "ECHOuterTrailingBytes",
+			mod: func(h *clientHello) {
+				for i := range h.Extensions {
+					if h.Extensions[i].Type == 0xfe0d {
+						h.Extensions[i].Data = append(h.Extensions[i].Data, 0x00)
+					}
+				}
+			},
+		},
+		{
+			name: "ECHInnerTrailingBytes",
+			mod: func(h *clientHello) {
+				for i := range h.Extensions {
+					if h.Extensions[i].Type == 0xfe0d {
+						h.Extensions[i].Data = []byte{0x01, 0x00}
+					}
+				}
+			},
+		},
+		{
+			name: "SNITrailingBytes",
+			mod: func(h *clientHello) {
+				for i := range h.Extensions {
+					if h.Extensions[i].Type == 0 {
+						h.Extensions[i].Data = append(h.Extensions[i].Data, 0x00)
+					}
+				}
+			},
+		},
+		{
+			name: "ALPNTrailingBytes",
+			mod: func(h *clientHello) {
+				h.Extensions = append(h.Extensions, extension{
+					Type: 16,
+					Data: []byte{0x00, 0x03, 0x02, 'h', '2', 0x00},
+				})
+			},
+		},
+		{
+			name: "SupportedVersionsTrailingBytes",
+			mod: func(h *clientHello) {
+				for i := range h.Extensions {
+					if h.Extensions[i].Type == 43 {
+						h.Extensions[i].Data = append(h.Extensions[i].Data, 0x00)
+					}
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inner := newClientHello("private", "echExtInner", "tls1.3")
+			outer := newClientHello("public", "tls1.3", config, pubKey, inner)
+			tc.mod(outer.clientHello)
+			raw, err := outer.clientHello.Marshal()
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			c := newFakeConn(raw)
+			if _, err := NewConn(t.Context(), c, WithKeys(keys)); !errors.Is(err, ErrDecodeError) {
+				t.Fatalf("NewConn: %v, want ErrDecodeError", err)
+			}
+			if got, want := c.Writer.(*bytes.Buffer).Bytes(), []byte{0x15, 0x03, 0x03, 0x00, 0x02, 2, 50}; !bytes.Equal(got, want) {
+				t.Errorf("Alert = %v, want %v", got, want)
+			}
+		})
+	}
+}

@@ -283,7 +283,7 @@ func (c *Conn) processEncryptedClientHello(h *clientHello, isRetry bool) (*clien
 		eoeSeen = true
 		s := cryptobyte.String(ext.Data)
 		var want cryptobyte.String
-		if !s.ReadUint8LengthPrefixed(&want) {
+		if !s.ReadUint8LengthPrefixed(&want) || !s.Empty() {
 			return nil, ErrDecodeError
 		}
 		// Appendix B. Linear-time Outer Extension Processing

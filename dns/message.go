@@ -278,6 +278,28 @@ func (m *Message) AddPadding() {
 	m.Additional[p].Data = opts
 }
 
+func addDomainName(s *cryptobyte.Builder, name string) bool {
+	name = strings.TrimSuffix(name, ".")
+	if len(name) == 0 {
+		s.AddUint8(0)
+		return true
+	}
+	size := 1
+	for _, p := range strings.Split(name, ".") {
+		if len(p) == 0 || len(p) > 63 {
+			return false
+		}
+		if size += len(p) + 1; size > 255 {
+			return false
+		}
+		s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
+			s.AddBytes([]byte(p))
+		})
+	}
+	s.AddUint8(0)
+	return true
+}
+
 // Bytes returns the serialized message. It includes only the header and the
 // question section.
 func (m Message) Bytes() []byte {
@@ -289,49 +311,46 @@ func (m Message) Bytes() []byte {
 	s.AddUint16(uint16(len(m.Authority)))
 	s.AddUint16(uint16(len(m.Additional)))
 	for _, v := range m.Question {
-		parts := strings.Split(strings.TrimSuffix(v.Name, "."), ".")
-		for _, p := range parts {
-			s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
-				s.AddBytes([]byte(p))
-			})
+		if !addDomainName(s, v.Name) {
+			return nil
 		}
-		s.AddUint8(0)
 		s.AddUint16(v.Type)
 		s.AddUint16(v.Class)
 	}
 	for _, v := range [][]RR{m.Answer, m.Authority, m.Additional} {
 		for _, rr := range v {
-			s.AddBytes(rr.Bytes())
+			b := rr.Bytes()
+			if len(b) == 0 {
+				return nil
+			}
+			s.AddBytes(b)
 		}
 	}
-	return s.BytesOrPanic()
+	b, err := s.Bytes()
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 func (rr RR) Bytes() []byte {
 	s := cryptobyte.NewBuilder(nil)
-	if name := strings.TrimSuffix(rr.Name, "."); len(name) > 0 {
-		for _, p := range strings.Split(name, ".") {
-			s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
-				s.AddBytes([]byte(p))
-			})
-		}
+	if !addDomainName(s, rr.Name) {
+		return nil
 	}
-	s.AddUint8(0)
 	s.AddUint16(rr.Type)
 	s.AddUint16(rr.Class)
 	s.AddUint32(rr.TTL)
+	ok := true
 	s.AddUint16LengthPrefixed(func(s *cryptobyte.Builder) {
 		switch data := rr.Data.(type) {
 		case net.IP:
 			s.AddBytes([]byte(data))
 		case string:
 			if rr.Type == 2 || rr.Type == 5 || rr.Type == 12 { // NS, CNAME, PTR
-				for _, p := range strings.Split(strings.TrimSuffix(data, "."), ".") {
-					s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
-						s.AddBytes([]byte(p))
-					})
+				if !addDomainName(s, data) {
+					ok = false
 				}
-				s.AddUint8(0)
 			}
 		case []Option:
 			for _, opt := range data {
@@ -342,14 +361,10 @@ func (rr RR) Bytes() []byte {
 			}
 		case HTTPS:
 			s.AddUint16(data.Priority)
-			if target := strings.TrimSuffix(data.Target, "."); len(target) > 0 {
-				for _, p := range strings.Split(target, ".") {
-					s.AddUint8LengthPrefixed(func(s *cryptobyte.Builder) {
-						s.AddBytes([]byte(p))
-					})
-				}
+			if !addDomainName(s, data.Target) {
+				ok = false
+				return
 			}
-			s.AddUint8(0)
 			if len(data.ALPN) > 0 {
 				s.AddUint16(1)
 				s.AddUint16LengthPrefixed(func(s *cryptobyte.Builder) {
@@ -397,7 +412,14 @@ func (rr RR) Bytes() []byte {
 			panic(fmt.Sprintf("cannot serialize %T", rr.Data))
 		}
 	})
-	return s.BytesOrPanic()
+	if !ok {
+		return nil
+	}
+	b, err := s.Bytes()
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // DecodeMessage decodes a DNS message.
@@ -829,6 +851,7 @@ func (d decoder) https(b []byte) (HTTPS, error) {
 				}
 				result.ALPN = append(result.ALPN, string(proto))
 			}
+			result.ALPN = slices.Clip(result.ALPN)
 		case 2: // no-default-alpn
 			result.NoDefaultALPN = true
 		case 3: // port
@@ -843,8 +866,9 @@ func (d decoder) https(b []byte) (HTTPS, error) {
 				}
 				result.IPv4Hint = append(result.IPv4Hint, net.IP(ip))
 			}
+			result.IPv4Hint = slices.Clip(result.IPv4Hint)
 		case 5: // ECH
-			result.ECH = value
+			result.ECH = slices.Clip(value)
 		case 6: // ipv6hint
 			for !value.Empty() {
 				var ip []byte
@@ -853,6 +877,7 @@ func (d decoder) https(b []byte) (HTTPS, error) {
 				}
 				result.IPv6Hint = append(result.IPv6Hint, net.IP(ip))
 			}
+			result.IPv6Hint = slices.Clip(result.IPv6Hint)
 		}
 	}
 	return result, nil
